@@ -18,7 +18,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "The Jury — When code can't decide, five AIs can.",
+  title: "The Jury - When code can't decide, five AIs can.",
   description:
     "An interactive demonstration of GenLayer's Equivalence Principle. Pose a subjective question, watch five LLMs deliberate as validators, see the verdict — live in your browser.",
   metadataBase: new URL("https://genlayer-jury.vercel.app"),
@@ -42,9 +42,16 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${fraunces.variable} ${jetbrainsMono.variable}`}>
+    <html
+      lang="en"
+      className={`${fraunces.variable} ${jetbrainsMono.variable}`}
+    >
       <head>
-        <link rel="preconnect" href="https://api.fontshare.com" crossOrigin="" />
+        <link
+          rel="preconnect"
+          href="https://api.fontshare.com"
+          crossOrigin=""
+        />
         <link
           href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600&display=swap"
           rel="stylesheet"
