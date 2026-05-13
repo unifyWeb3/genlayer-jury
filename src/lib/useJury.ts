@@ -8,17 +8,15 @@ import {
   type Mode,
   type Scenario,
   type Verdict,
+  type VerdictTally,
   tallyVerdicts,
 } from "./scenarios";
 
-// Per-juror live state during a deliberation
 export type LiveJuror = {
-  seat: 1 | 2 | 3 | 4 | 5;
+  seat: number;
   model: string;
   status: "idle" | "deliberating" | "yes" | "no" | "und";
-  // Text streamed so far, character by character
   streamedText: string;
-  // The full text the juror is streaming toward (hidden from UI until status resolves)
   targetText: string;
   finalVerdict: Verdict;
 };
@@ -27,6 +25,65 @@ export type JuryState =
   | { phase: "idle"; jurors: LiveJuror[]; verdict: null }
   | { phase: "deliberating"; jurors: LiveJuror[]; verdict: null }
   | { phase: "resolved"; jurors: LiveJuror[]; verdict: FinalVerdict };
+
+const TIER2_MODELS = [
+  "Grok-3",
+  "Mistral-Large",
+  "Command-R+",
+  "Llama-4-Scout",
+  "Phi-4-Mini",
+  "Gemini-2.5-Flash",
+];
+
+const ECHO_TEXTS: Record<Verdict, string[]> = {
+  yes: [
+    "Appellate review sustains: conditions materially satisfied.",
+    "Second-tier assessment: acceptance warranted on evidence.",
+    "Affirmed on appeal — criteria are met.",
+    "Tier-2 review confirms majority: compliant.",
+    "Appellate concurrence: fulfillment threshold reached.",
+  ],
+  no: [
+    "Appellate review sustains: conditions unmet.",
+    "Second-tier assessment: rejection warranted.",
+    "Affirmed on appeal — criteria not satisfied.",
+    "Tier-2 review confirms majority: non-compliant.",
+    "Appellate concurrence: breach threshold met.",
+  ],
+  und: [
+    "Appellate review: ambiguity persists at tier 2.",
+    "Second-tier assessment: evidence remains inconclusive.",
+    "Affirmed on appeal — undetermined.",
+    "Tier-2 review confirms majority: insufficient evidence.",
+    "Appellate concurrence: undetermined verdict stands.",
+  ],
+};
+
+const DISSENT_TEXTS: Record<Verdict, string> = {
+  yes: "Tier-2 dissent: minority view holds acceptance criteria unmet.",
+  no: "Tier-2 dissent: minority view holds conditions were satisfied.",
+  und: "Tier-2 dissent: minority view disputes majority undetermination.",
+};
+
+function generateTier2Jurors(tier1: LiveJuror[], tally: VerdictTally): Juror[] {
+  const majority: Verdict =
+    tally.yes >= tally.no && tally.yes >= tally.und
+      ? "yes"
+      : tally.no >= tally.yes && tally.no >= tally.und
+      ? "no"
+      : "und";
+  const minority: Verdict =
+    majority === "yes" ? "no" : majority === "no" ? "yes" : "no";
+
+  return TIER2_MODELS.map((model, i) => ({
+    seat: 6 + i,
+    model,
+    verdict: i < 5 ? majority : minority,
+    text: i < 5 ? ECHO_TEXTS[majority][i] : DISSENT_TEXTS[majority],
+    startDelay: 400 + i * 700,
+    charsPerSec: 28 + i * 2,
+  }));
+}
 
 const idleJurors = (jurors: Juror[]): LiveJuror[] =>
   jurors.map((j) => ({
@@ -38,16 +95,72 @@ const idleJurors = (jurors: Juror[]): LiveJuror[] =>
     finalVerdict: j.verdict,
   }));
 
-/**
- * Drives a jury deliberation:
- *  - On `convene()`: each juror waits `startDelay` ms, then streams its text
- *    at `charsPerSec`. When fully streamed, status flips from "deliberating"
- *    to its final verdict.
- *  - When all jurors resolve, applies the Equivalence Principle to produce a
- *    final verdict.
- *  - Reset clears everything back to idle.
- */
+function runStream(
+  specs: Juror[],
+  baseIndex: number,
+  mode: Mode,
+  totalJurors: number,
+  tier: 1 | 2,
+  setJurors: (fn: (prev: LiveJuror[]) => LiveJuror[]) => void,
+  onResolved: (v: FinalVerdict) => void,
+  timersRef: { current: ReturnType<typeof setTimeout>[] }
+) {
+  specs.forEach((juror, localIdx) => {
+    const index = baseIndex + localIdx;
+    const startTimer = setTimeout(() => {
+      setJurors((prev) => {
+        const next = [...prev];
+        next[index] = { ...next[index], status: "deliberating" };
+        return next;
+      });
+
+      const intervalMs = 1000 / juror.charsPerSec;
+      let charIdx = 0;
+      const streamTimer = setInterval(() => {
+        charIdx += 1;
+        if (charIdx >= juror.text.length) {
+          clearInterval(streamTimer);
+          setJurors((prev) => {
+            const next = [...prev];
+            next[index] = {
+              ...next[index],
+              streamedText: juror.text,
+              status: juror.verdict,
+            };
+            const allDone = next.every(
+              (j) => j.status !== "deliberating" && j.status !== "idle"
+            );
+            if (allDone) {
+              const tally = tallyVerdicts(next.map((j) => j.status));
+              const final = applyEquivalencePrinciple(tally, mode, totalJurors, tier);
+              if (final) {
+                queueMicrotask(() => onResolved(final));
+              }
+            }
+            return next;
+          });
+          return;
+        }
+        setJurors((prev) => {
+          const next = [...prev];
+          next[index] = {
+            ...next[index],
+            streamedText: juror.text.slice(0, charIdx),
+          };
+          return next;
+        });
+      }, intervalMs);
+
+      timersRef.current.push(
+        streamTimer as unknown as ReturnType<typeof setTimeout>
+      );
+    }, juror.startDelay);
+    timersRef.current.push(startTimer);
+  });
+}
+
 export function useJury(scenario: Scenario, mode: Mode) {
+  const [tier, setTier] = useState<1 | 2>(1);
   const [jurors, setJurors] = useState<LiveJuror[]>(() =>
     idleJurors(scenario.jurors)
   );
@@ -57,98 +170,76 @@ export function useJury(scenario: Scenario, mode: Mode) {
   const [verdict, setVerdict] = useState<FinalVerdict | null>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const clearAllTimers = () => {
+  useEffect(() => {
     timersRef.current.forEach((t) => clearTimeout(t));
     timersRef.current = [];
-  };
-
-  // Reset when scenario changes
-  useEffect(() => {
-    clearAllTimers();
+    setTier(1);
     setJurors(idleJurors(scenario.jurors));
     setPhase("idle");
     setVerdict(null);
-    return clearAllTimers;
-  }, [scenario.id, scenario.jurors]);
+    return () => {
+      timersRef.current.forEach((t) => clearTimeout(t));
+      timersRef.current = [];
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenario.id]);
+
+  const onResolved = useCallback((v: FinalVerdict) => {
+    setVerdict(v);
+    setPhase("resolved");
+  }, []);
 
   const convene = useCallback(() => {
-    clearAllTimers();
+    timersRef.current.forEach((t) => clearTimeout(t));
+    timersRef.current = [];
+    setTier(1);
     setPhase("deliberating");
     setVerdict(null);
     setJurors(idleJurors(scenario.jurors));
-
-    scenario.jurors.forEach((juror, index) => {
-      // Step 1: After startDelay, flip to "deliberating"
-      const startTimer = setTimeout(() => {
-        setJurors((prev) => {
-          const next = [...prev];
-          next[index] = { ...next[index], status: "deliberating" };
-          return next;
-        });
-
-        // Step 2: stream the text character by character
-        const intervalMs = 1000 / juror.charsPerSec;
-        let charIdx = 0;
-        const streamTimer = setInterval(() => {
-          charIdx += 1;
-          if (charIdx >= juror.text.length) {
-            clearInterval(streamTimer);
-            // Step 3: flip to final verdict
-            setJurors((prev) => {
-              const next = [...prev];
-              next[index] = {
-                ...next[index],
-                streamedText: juror.text,
-                status: juror.verdict,
-              };
-              // Check if all are done
-              const allDone = next.every((j) => j.status !== "deliberating" && j.status !== "idle");
-              if (allDone) {
-                const tally = tallyVerdicts(next.map((j) => j.status));
-                const final = applyEquivalencePrinciple(tally, mode, next.length);
-                if (final) {
-                  // Defer state set to avoid double-render warning
-                  queueMicrotask(() => {
-                    setVerdict(final);
-                    setPhase("resolved");
-                  });
-                }
-              }
-              return next;
-            });
-            return;
-          }
-          setJurors((prev) => {
-            const next = [...prev];
-            next[index] = {
-              ...next[index],
-              streamedText: juror.text.slice(0, charIdx),
-            };
-            return next;
-          });
-        }, intervalMs);
-
-        // Track this interval as a "timer" so we can cancel mid-flight
-        timersRef.current.push(streamTimer as unknown as ReturnType<typeof setTimeout>);
-      }, juror.startDelay);
-      timersRef.current.push(startTimer);
-    });
-  }, [scenario, mode]);
+    runStream(
+      scenario.jurors,
+      0,
+      mode,
+      scenario.jurors.length,
+      1,
+      setJurors,
+      onResolved,
+      timersRef
+    );
+  }, [scenario, mode, onResolved]);
 
   const reset = useCallback(() => {
-    clearAllTimers();
+    timersRef.current.forEach((t) => clearTimeout(t));
+    timersRef.current = [];
+    setTier(1);
     setJurors(idleJurors(scenario.jurors));
     setPhase("idle");
     setVerdict(null);
   }, [scenario]);
 
-  // Appeal: re-runs with a doubled jury (5 → 11 in tier 2)
-  // For now, this just re-runs the same 5 + adds 6 more "synthetic" jurors
-  // who echo the supermajority. This is a Day-3 polish target; for Day 2,
-  // appeal just runs another deliberation cycle.
   const appeal = useCallback(() => {
-    convene();
-  }, [convene]);
+    timersRef.current.forEach((t) => clearTimeout(t));
+    timersRef.current = [];
 
-  return { jurors, phase, verdict, convene, reset, appeal };
+    const tier1 = jurors.slice(0, 5);
+    const tally = tallyVerdicts(tier1.map((j) => j.status));
+    const tier2Specs = generateTier2Jurors(tier1, tally);
+    const tier2Live: LiveJuror[] = tier2Specs.map((j) => ({
+      seat: j.seat,
+      model: j.model,
+      status: "idle" as const,
+      streamedText: "",
+      targetText: j.text,
+      finalVerdict: j.verdict,
+    }));
+
+    setTier(2);
+    setPhase("deliberating");
+    setVerdict(null);
+    setJurors([...tier1, ...tier2Live]);
+
+    runStream(tier2Specs, 5, mode, 11, 2, setJurors, onResolved, timersRef);
+  }, [jurors, mode, onResolved]);
+
+  return { jurors, phase, verdict, tier, convene, reset, appeal };
 }

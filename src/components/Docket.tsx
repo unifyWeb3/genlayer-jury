@@ -1,4 +1,9 @@
-export function Docket() {
+"use client";
+
+import { useJuryContext } from "@/lib/JuryContext";
+
+export function Docket({ subtitle }: { subtitle?: string }) {
+  const { tier } = useJuryContext();
   return (
     <header
       className="flex justify-between items-center px-8 py-5 border-b sticky top-0 z-50 backdrop-blur-md"
@@ -8,7 +13,9 @@ export function Docket() {
       }}
     >
       <div className="overline">GenLayer · Court of the Internet</div>
-      <div className="overline overline-faint">Case №24·001 — In Session</div>
+      <div className="overline overline-faint">
+        {subtitle ?? `Case №24·001 — ${tier === 2 ? "On Appeal" : "In Session"}`}
+      </div>
     </header>
   );
 }

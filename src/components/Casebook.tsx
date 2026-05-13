@@ -1,11 +1,14 @@
 "use client";
 
+import Link from "next/link";
+
 type Case = {
   num: string;
   title: { lead: string; italic: string };
   sub: string;
   mode: "Strict" | "Comparative" | "Non-comparative";
   finality: string;
+  href: string;
 };
 
 const cases: Case[] = [
@@ -15,6 +18,7 @@ const cases: Case[] = [
     sub: "Was the pitch deck delivered? Eight slides on Monday for ten-by-Friday.",
     mode: "Non-comparative",
     finality: "Finality · 0.41s",
+    href: "/case/freelancer",
   },
   {
     num: "№ 24·002",
@@ -22,6 +26,7 @@ const cases: Case[] = [
     sub: "Parametric insurance: did AA42 land more than 2 hours late?",
     mode: "Strict",
     finality: "Finality · 0.18s",
+    href: "/case/flight",
   },
   {
     num: "№ 24·003",
@@ -29,6 +34,7 @@ const cases: Case[] = [
     sub: "Does this treasury allocation fall within the charter's intent?",
     mode: "Non-comparative",
     finality: "Finality · 0.72s",
+    href: "#",
   },
   {
     num: "№ 24·004",
@@ -36,6 +42,7 @@ const cases: Case[] = [
     sub: '"Will GPT-5 ship before July?" Who won when ambiguity resolves slowly?',
     mode: "Comparative",
     finality: "Finality · 0.34s",
+    href: "#",
   },
   {
     num: "№ 24·005",
@@ -43,6 +50,7 @@ const cases: Case[] = [
     sub: 'Did the autonomous research agent meet "high-quality citations" as promised?',
     mode: "Non-comparative",
     finality: "Finality · 0.58s",
+    href: "#",
   },
 ];
 
@@ -85,9 +93,9 @@ export function Casebook() {
         {cases.map((c, i) => {
           const isLast = i === cases.length - 1;
           return (
-            <a
+            <Link
               key={i}
-              href="#"
+              href={c.href}
               className="group grid grid-cols-[80px_1fr_200px_140px_32px] items-center gap-8 py-8 border-b no-underline text-inherit max-lg:grid-cols-[60px_1fr_32px] max-lg:gap-4"
               style={{
                 borderColor: isLast ? "var(--color-rule-strong)" : "var(--color-rule)",
@@ -141,7 +149,7 @@ export function Casebook() {
               >
                 →
               </span>
-            </a>
+            </Link>
           );
         })}
       </div>

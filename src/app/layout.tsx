@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { JuryProvider } from "@/lib/JuryContext";
 
 const fraunces = Fraunces({
   variable: "--font-display",
@@ -57,7 +58,9 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <JuryProvider>{children}</JuryProvider>
+      </body>
     </html>
   );
 }
