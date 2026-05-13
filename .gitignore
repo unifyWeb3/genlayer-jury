@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Windows Alternate Data Streams (WSL leak)
 *:Zone.Identifier
+
+# Windows Alternate Data Streams (WSL leak)
+*:Zone.Identifier
