@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Windows Alternate Data Streams (WSL leak)
+*:Zone.Identifier
