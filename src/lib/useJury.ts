@@ -385,17 +385,20 @@ export function useJury(scenario: Scenario, mode: Mode) {
       const acs: AbortController[] = [];
       abortControllersRef.current = acs;
       scenario.jurors.forEach((juror, i) => {
-        void streamJurorLive(
-          juror.seat,
-          scenario.id,
-          mode,
-          i,
-          scenario.jurors.length,
-          1,
-          setJurors,
-          onResolved,
-          acs
-        );
+        const t = setTimeout(() => {
+          void streamJurorLive(
+            juror.seat,
+            scenario.id,
+            mode,
+            i,
+            scenario.jurors.length,
+            1,
+            setJurors,
+            onResolved,
+            acs
+          );
+        }, i * 400);
+        timersRef.current.push(t);
       });
     } else {
       runStream(
@@ -448,19 +451,22 @@ export function useJury(scenario: Scenario, mode: Mode) {
     if (LIVE_MODE) {
       const acs: AbortController[] = [];
       abortControllersRef.current = acs;
-      // Seats 6–11: fire live calls for tier-2 positions (index 5–10)
+      // Seats 6–11: stagger tier-2 calls by 400ms each
       tier2Specs.forEach((spec, localIdx) => {
-        void streamJurorLive(
-          spec.seat,
-          scenario.id,
-          mode,
-          5 + localIdx,
-          11,
-          2,
-          setJurors,
-          onResolved,
-          acs
-        );
+        const t = setTimeout(() => {
+          void streamJurorLive(
+            spec.seat,
+            scenario.id,
+            mode,
+            5 + localIdx,
+            11,
+            2,
+            setJurors,
+            onResolved,
+            acs
+          );
+        }, localIdx * 400);
+        timersRef.current.push(t);
       });
     } else {
       runStream(tier2Specs, 5, mode, 11, 2, setJurors, onResolved, timersRef);

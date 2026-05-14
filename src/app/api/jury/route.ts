@@ -37,64 +37,102 @@ function sseChunk(event: SseEvent): Uint8Array {
   return enc.encode(`data: ${JSON.stringify(event)}\n\n`);
 }
 
-function extractVerdict(text: string): { verdict: Verdict; reasoning: string } {
-  const match = text.match(/\{[\s\S]*?"verdict"[\s\S]*?\}/);
-  if (match) {
+// Tolerant verdict parser — tries three strategies in order.
+function parseVerdict(text: string): Verdict {
+  // Stage 1: ACCEPT/REJECT/UNDETERMINED token in first 40 chars
+  const prefix = text.slice(0, 40).toUpperCase();
+  if (prefix.includes("ACCEPT")) return "yes";
+  if (prefix.includes("REJECT")) return "no";
+  if (prefix.includes("UNDETERMINED")) return "und";
+
+  // Stage 2: JSON object containing a "verdict" key
+  const jsonMatch = text.match(/\{[^{}]*"verdict"[^{}]*\}/);
+  if (jsonMatch) {
     try {
-      const parsed = JSON.parse(match[0]) as {
-        verdict?: string;
-        reasoning?: string;
-      };
-      const v = parsed.verdict;
-      const verdict: Verdict =
-        v === "yes" ? "yes" : v === "no" ? "no" : "und";
-      const reasoning =
-        typeof parsed.reasoning === "string" && parsed.reasoning.trim()
-          ? parsed.reasoning.trim()
-          : text.trim();
-      return { verdict, reasoning };
+      const parsed = JSON.parse(jsonMatch[0]) as { verdict?: string };
+      const v = (parsed.verdict ?? "").toLowerCase();
+      if (v === "yes" || v === "accept") return "yes";
+      if (v === "no" || v === "reject") return "no";
+      if (v === "und" || v === "undetermined") return "und";
     } catch {
-      // fall through
+      /* fall through */
     }
   }
-  return { verdict: "und", reasoning: text.trim() || "Unable to determine." };
+
+  // Stage 3: keyword scan
+  const lower = text.toLowerCase();
+  if (/\b(accept|accepted|yes|complies|fulfilled|satisfi|criteria met)\b/.test(lower))
+    return "yes";
+  if (/\b(reject|rejected|no\b|failed|unmet|breach|violated|missing|not met)\b/.test(lower))
+    return "no";
+  if (/\b(undetermined|und\b|unclear|insufficient|ambiguous|inconclusive)\b/.test(lower))
+    return "und";
+
+  return "und";
 }
 
-// Resolves hostname via c-ares (same resolver used by global fetch — avoids
-// getaddrinfo EAI_AGAIN failures seen with https.request in WSL).
+// Resolves hostname via c-ares (same resolver as Node global fetch — avoids
+// getaddrinfo EAI_AGAIN in WSL).
 async function resolveIPv4(hostname: string): Promise<string> {
   const addrs = await dns.resolve4(hostname);
   return addrs[0];
 }
 
-// Makes an HTTPS POST using node:https with an explicit IPv4 address so we
-// bypass both Next.js's patched fetch and WSL's unreliable getaddrinfo.
-function httpsPost(
+// Streams an HTTPS POST, calling onChunk for every content fragment.
+// Resolves when the response body ends with { statusCode, errorBody }.
+function httpsPostStream(
   ip: string,
   hostname: string,
   path: string,
   headers: Record<string, string | number>,
-  body: string,
-  signal: AbortSignal
-): Promise<{ statusCode: number; body: string }> {
+  reqBody: string,
+  signal: AbortSignal,
+  onChunk: (text: string) => void
+): Promise<{ statusCode: number; errorBody: string }> {
   return new Promise((resolve, reject) => {
     const req = https.request(
       {
         host: ip,
-        servername: hostname, // SNI for TLS
+        servername: hostname,
         path,
         method: "POST",
         headers: { ...headers, Host: hostname },
       },
       (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(chunk));
-        res.on("end", () =>
-          resolve({
-            statusCode: res.statusCode ?? 0,
-            body: Buffer.concat(chunks).toString("utf8"),
-          })
-        );
+        const code = res.statusCode ?? 0;
+
+        if (code < 200 || code >= 300) {
+          const errBufs: Buffer[] = [];
+          res.on("data", (c: Buffer) => errBufs.push(c));
+          res.on("end", () =>
+            resolve({
+              statusCode: code,
+              errorBody: Buffer.concat(errBufs).toString("utf8"),
+            })
+          );
+          res.on("error", reject);
+          return;
+        }
+
+        let lineBuffer = "";
+        res.on("data", (chunk: Buffer) => {
+          lineBuffer += chunk.toString("utf8");
+          const lines = lineBuffer.split("\n");
+          lineBuffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(data) as OrChunk;
+              const content = parsed.choices?.[0]?.delta?.content;
+              if (content) onChunk(content);
+            } catch {
+              /* skip malformed chunk */
+            }
+          }
+        });
+        res.on("end", () => resolve({ statusCode: code, errorBody: "" }));
         res.on("error", reject);
       }
     );
@@ -102,7 +140,7 @@ function httpsPost(
     signal.addEventListener("abort", () => {
       req.destroy(new Error("AbortError"));
     });
-    req.write(body);
+    req.write(reqBody);
     req.end();
   });
 }
@@ -128,17 +166,14 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const seatLabel = String(seat).padStart(2, "0");
-  const systemPrompt = `You are Validator Seat ${seatLabel} in GenLayer's decentralized jury. A subjective dispute has been brought before the tribunal. You must deliver a verdict and a one-sentence reasoning.
+  const systemPrompt = `You are Validator Seat ${seatLabel} in GenLayer's decentralized jury, deciding a subjective dispute. The current mode is ${mode}.
 
-Mode: ${mode}
-  - Strict: You must answer factually with a definitive verdict.
-  - Comparative: You must answer with a tolerance-aware judgment.
-  - Non-comparative: You must apply a rubric and judge whether the claim holds.
+Deliver your verdict in 1-2 short sentences (max 25 words total). Start your response with one of these exact tokens:
+ACCEPT - if you agree with the claim
+REJECT - if you disagree with the claim
+UNDETERMINED - if there is not enough information to decide
 
-Respond in exactly this JSON format, no other text:
-{"verdict": "yes" | "no" | "und", "reasoning": "<one terse sentence, max 18 words>"}
-
-"yes" = accept the claim. "no" = reject. "und" = undetermined / not enough info.`;
+Then a brief reasoning. Example: "REJECT — the freelancer missed both the deadline and the slide count."`;
 
   const userPrompt = scenario.question;
 
@@ -162,12 +197,37 @@ Respond in exactly this JSON format, no other text:
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const emit = (event: SseEvent) => controller.enqueue(sseChunk(event));
+      // Bug 1 fix: guard against double-close
+      let isClosed = false;
+      const safeEnqueue = (data: Uint8Array) => {
+        if (isClosed) return;
+        try {
+          controller.enqueue(data);
+        } catch {
+          isClosed = true;
+        }
+      };
+      const safeClose = () => {
+        if (isClosed) return;
+        isClosed = true;
+        try {
+          controller.close();
+        } catch {
+          /* already closed externally */
+        }
+      };
+      const emit = (event: SseEvent) => safeEnqueue(sseChunk(event));
+
+      // Close immediately if client aborts before we even start
+      abort.signal.addEventListener("abort", safeClose);
 
       try {
         const ip = await resolveIPv4("openrouter.ai");
 
-        const { statusCode, body: rawBody } = await httpsPost(
+        let accumulated = "";
+        let deltaCount = 0;
+
+        const { statusCode } = await httpsPostStream(
           ip,
           "openrouter.ai",
           "/api/v1/chat/completions",
@@ -179,53 +239,48 @@ Respond in exactly this JSON format, no other text:
             "X-Title": siteName,
           },
           payload,
-          abort.signal
+          abort.signal,
+          (chunk) => {
+            accumulated += chunk;
+            deltaCount++;
+            emit({ type: "delta", text: chunk });
+          }
         );
 
         if (statusCode < 200 || statusCode >= 300) {
-          emit({
-            type: "error",
-            message: `OpenRouter ${statusCode}: ${rawBody.slice(0, 120)}`,
-          });
+          const userMsg =
+            statusCode === 429
+              ? "Model temporarily rate-limited — validator defaulting to undetermined."
+              : `Validator unavailable (${statusCode}).`;
+          emit({ type: "delta", text: userMsg });
           emit({ type: "verdict", verdict: "und" });
           emit({ type: "done" });
-          controller.close();
           return;
         }
 
-        // Parse the accumulated SSE body
-        let accumulated = "";
-        for (const line of rawBody.split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") continue;
-          try {
-            const chunk = JSON.parse(data) as OrChunk;
-            const content = chunk.choices?.[0]?.delta?.content;
-            if (content) accumulated += content;
-          } catch {
-            // skip malformed chunk
-          }
+        // Always emit at least one delta so the juror card is never blank
+        if (deltaCount === 0) {
+          emit({ type: "delta", text: "(no response)" });
         }
 
-        const { verdict, reasoning } = extractVerdict(accumulated);
-        if (reasoning) emit({ type: "delta", text: reasoning });
+        const verdict = parseVerdict(accumulated);
         emit({ type: "verdict", verdict });
         emit({ type: "done" });
       } catch (err) {
         const msg = (err as Error).message ?? "";
         if (msg === "AbortError" || (err as Error).name === "AbortError") {
+          emit({ type: "delta", text: "Validator timed out — defaulting to undetermined." });
           emit({ type: "verdict", verdict: "und" });
           emit({ type: "done" });
         } else {
           console.error("[jury] error:", msg);
-          emit({ type: "error", message: msg || "Streaming error" });
+          emit({ type: "delta", text: "Validator failed to respond — defaulting to undetermined." });
           emit({ type: "verdict", verdict: "und" });
           emit({ type: "done" });
         }
       } finally {
         clearTimeout(timeoutId);
-        controller.close();
+        safeClose();
       }
     },
   });
