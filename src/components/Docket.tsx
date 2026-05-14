@@ -13,8 +13,35 @@ export function Docket({ subtitle }: { subtitle?: string }) {
       }}
     >
       <div className="overline">GenLayer · Court of the Internet</div>
-      <div className="overline overline-faint">
-        {subtitle ?? `Case №24·001 — ${tier === 2 ? "On Appeal" : "In Session"}`}
+      <div className="flex items-center gap-3">
+        <div className="overline overline-faint">
+          {subtitle ?? `Case №24·001 — ${tier === 2 ? "On Appeal" : "In Session"}`}
+        </div>
+        {process.env.NEXT_PUBLIC_LIVE_JURY === "true" && (
+          <div className="flex items-center gap-1.5">
+            <span
+              aria-hidden
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "var(--color-accent)",
+                display: "inline-block",
+                flexShrink: 0,
+              }}
+            />
+            <span
+              className="font-[family-name:var(--font-mono)]"
+              style={{
+                fontSize: 10,
+                letterSpacing: "0.2em",
+                color: "var(--color-accent)",
+              }}
+            >
+              LIVE
+            </span>
+          </div>
+        )}
       </div>
     </header>
   );

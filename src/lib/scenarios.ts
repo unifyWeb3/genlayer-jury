@@ -28,11 +28,11 @@ export type Scenario = {
 };
 
 const SEAT_LABELS = [
-  "GPT-4o",
-  "Claude 3.5",
-  "Gemini 1.5",
-  "Llama 3.1",
-  "Mistral L",
+  "GPT-OSS 120B",
+  "Llama 3.3",
+  "Gemma 4 31B",
+  "Dolphin Mistral",
+  "Qwen 3 80B",
 ] as const;
 
 export const SCENARIOS: Scenario[] = [
