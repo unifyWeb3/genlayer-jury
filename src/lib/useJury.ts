@@ -11,15 +11,15 @@ import {
   type VerdictTally,
   tallyVerdicts,
 } from "./scenarios";
+import { useMode } from "./ModeContext";
+
 // SSE event discriminated union — must match the shape emitted by /api/jury/route.ts
 type SseEvent =
   | { type: "delta"; text: string }
+  | { type: "retry"; retryAfterMs: number }
   | { type: "verdict"; verdict: Verdict }
   | { type: "error"; message: string }
   | { type: "done" };
-
-// Inlined at build time by Next.js (NEXT_PUBLIC_* vars)
-const LIVE_MODE = process.env.NEXT_PUBLIC_LIVE_JURY === "true";
 
 // Models assigned to seats 1–5 in live mode (seat 6–11 cycle back)
 const LIVE_MODELS = [
@@ -96,8 +96,8 @@ function generateTier2Jurors(tally: VerdictTally): Juror[] {
     tally.yes >= tally.no && tally.yes >= tally.und
       ? "yes"
       : tally.no >= tally.yes && tally.no >= tally.und
-      ? "no"
-      : "und";
+        ? "no"
+        : "und";
   const minority: Verdict =
     majority === "yes" ? "no" : majority === "no" ? "yes" : "no";
 
@@ -113,29 +113,67 @@ function generateTier2Jurors(tally: VerdictTally): Juror[] {
 
 // ── Live concurrency semaphore ────────────────────────────────────────────────
 
-const LIVE_CONCURRENCY = 2;
+const LIVE_CONCURRENCY = 1;
+const LIVE_MIN_START_GAP_MS = 3250;
+const LIVE_RETRY_BUFFER_MS = 500;
+
+type LiveTaskResult = {
+  retryAfterMs?: number;
+};
+
+function waitFor(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}
 
 // Runs tasks with at most `limit` executing in parallel. Respects abort signal
 // to stop launching new tasks if the convene cycle is cancelled.
-async function runWithSemaphore<T>(
-  tasks: Array<() => Promise<T>>,
+async function runWithSemaphore(
+  tasks: (() => Promise<LiveTaskResult>)[],
   limit: number,
   signal?: AbortSignal
 ): Promise<void> {
   const queue = [...tasks];
   const inFlight = new Set<Promise<unknown>>();
-
+  let nextStartAt = 0;
   while (queue.length > 0 || inFlight.size > 0) {
     if (signal?.aborted) break;
-    while (inFlight.size < limit && queue.length > 0 && !signal?.aborted) {
+    while (inFlight.size < limit && queue.length > 0) {
+      await waitFor(nextStartAt - Date.now(), signal);
+      if (signal?.aborted) return;
+
       const task = queue.shift()!;
-      // Use let + immediate assignment so the finally callback can capture p
-      // after it is assigned (runs asynchronously, so p is always defined).
+      nextStartAt = Date.now() + LIVE_MIN_START_GAP_MS;
       let p: Promise<unknown>;
-      p = (task() as Promise<unknown>).finally(() => inFlight.delete(p));
+      p = task()
+        .then((result) => {
+          if (result.retryAfterMs !== undefined) {
+            nextStartAt = Math.max(
+              nextStartAt,
+              Date.now() + result.retryAfterMs + LIVE_RETRY_BUFFER_MS
+            );
+          }
+        })
+        .catch(() => {
+          /* streamJurorLive owns per-juror fallback state */
+        })
+        .finally(() => inFlight.delete(p));
       inFlight.add(p);
     }
-    if (inFlight.size > 0) await Promise.race(inFlight);
+    if (inFlight.size > 0) {
+      await Promise.race(inFlight).catch(() => {
+        /* keep scheduler alive if a task rejects unexpectedly */
+      });
+    }
   }
 }
 
@@ -234,7 +272,7 @@ async function streamJurorLive(
   setJurors: (fn: (prev: LiveJuror[]) => LiveJuror[]) => void,
   onResolved: (v: FinalVerdict) => void,
   abortControllers: AbortController[]
-): Promise<void> {
+): Promise<LiveTaskResult> {
   const ac = new AbortController();
   abortControllers.push(ac);
 
@@ -243,6 +281,32 @@ async function streamJurorLive(
     next[index] = { ...next[index], status: "deliberating" };
     return next;
   });
+
+  const finalizeJuror = (finalVerdict: Verdict, fallbackText?: string) => {
+    setJurors((prev) => {
+      const current = prev[index];
+      if (!current || current.status !== "deliberating") return prev;
+
+      const next = [...prev];
+      next[index] = {
+        ...current,
+        status: finalVerdict,
+        finalVerdict,
+        streamedText: current.streamedText || fallbackText || current.streamedText,
+      };
+      const allDone = next.every(
+        (j) => j.status !== "deliberating" && j.status !== "idle"
+      );
+      if (allDone) {
+        const tally = tallyVerdicts(next.map((j) => j.status));
+        const final = applyEquivalencePrinciple(tally, mode, totalJurors, tier);
+        if (final) {
+          queueMicrotask(() => onResolved(final));
+        }
+      }
+      return next;
+    });
+  };
 
   try {
     const res = await fetch("/api/jury", {
@@ -263,6 +327,8 @@ async function streamJurorLive(
     const decoder = new TextDecoder();
     let lineBuffer = "";
     let verdict: Verdict = "und";
+    let sawDone = false;
+    let retryAfterMs: number | undefined;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -289,6 +355,8 @@ async function streamJurorLive(
               };
               return next;
             });
+          } else if (event.type === "retry") {
+            retryAfterMs = Math.max(retryAfterMs ?? 0, event.retryAfterMs);
           } else if (event.type === "verdict") {
             verdict = event.verdict;
           } else if (event.type === "error") {
@@ -303,66 +371,38 @@ async function streamJurorLive(
             });
             verdict = "und";
           } else if (event.type === "done") {
-            setJurors((prev) => {
-              const next = [...prev];
-              next[index] = {
-                ...next[index],
-                status: verdict,
-                finalVerdict: verdict,
-              };
-              const allDone = next.every(
-                (j) => j.status !== "deliberating" && j.status !== "idle"
-              );
-              if (allDone) {
-                const tally = tallyVerdicts(next.map((j) => j.status));
-                const final = applyEquivalencePrinciple(
-                  tally,
-                  mode,
-                  totalJurors,
-                  tier
-                );
-                if (final) {
-                  queueMicrotask(() => onResolved(final));
-                }
-              }
-              return next;
-            });
+            sawDone = true;
+            finalizeJuror(verdict);
           }
         } catch {
           // skip malformed SSE event
         }
       }
     }
-  } catch (err) {
-    if ((err as Error).name === "AbortError") return;
-    setJurors((prev) => {
-      const next = [...prev];
-      next[index] = {
-        ...next[index],
-        status: "und",
-        streamedText:
-          "Validator failed to respond. Defaulting to undetermined.",
-        finalVerdict: "und",
-      };
-      // Check if all are done after error
-      const allDone = next.every(
-        (j) => j.status !== "deliberating" && j.status !== "idle"
+
+    if (!sawDone) {
+      finalizeJuror(
+        verdict,
+        "Validator stream ended without final verdict. Defaulting to undetermined."
       );
-      if (allDone) {
-        const tally = tallyVerdicts(next.map((j) => j.status));
-        const final = applyEquivalencePrinciple(tally, mode, totalJurors, tier);
-        if (final) {
-          queueMicrotask(() => onResolved(final));
-        }
-      }
-      return next;
-    });
+    }
+    return { retryAfterMs };
+  } catch (err) {
+    if ((err as Error).name === "AbortError") return {};
+    finalizeJuror(
+      "und",
+      "Validator failed to respond. Defaulting to undetermined."
+    );
+    return {};
   }
 }
 
 // ── useJury hook ──────────────────────────────────────────────────────────────
 
 export function useJury(scenario: Scenario, mode: Mode) {
+  const { mode: juryMode, setJuryBusy } = useMode();
+  const isLive = juryMode === "live";
+
   const [tier, setTier] = useState<1 | 2>(1);
   const [jurors, setJurors] = useState<LiveJuror[]>(() =>
     idleJurors(scenario.jurors)
@@ -384,6 +424,7 @@ export function useJury(scenario: Scenario, mode: Mode) {
     setJurors(idleJurors(scenario.jurors));
     setPhase("idle");
     setVerdict(null);
+    setJuryBusy(false);
     return () => {
       timersRef.current.forEach((t) => clearTimeout(t));
       timersRef.current = [];
@@ -393,10 +434,14 @@ export function useJury(scenario: Scenario, mode: Mode) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenario.id]);
 
-  const onResolved = useCallback((v: FinalVerdict) => {
-    setVerdict(v);
-    setPhase("resolved");
-  }, []);
+  const onResolved = useCallback(
+    (v: FinalVerdict) => {
+      setVerdict(v);
+      setPhase("resolved");
+      setJuryBusy(false);
+    },
+    [setJuryBusy]
+  );
 
   const convene = useCallback(() => {
     timersRef.current.forEach((t) => clearTimeout(t));
@@ -408,8 +453,9 @@ export function useJury(scenario: Scenario, mode: Mode) {
     setPhase("deliberating");
     setVerdict(null);
     setJurors(idleJurors(scenario.jurors));
+    setJuryBusy(true);
 
-    if (LIVE_MODE) {
+    if (isLive) {
       const acs: AbortController[] = [];
       const semaphoreAc = new AbortController();
       acs.push(semaphoreAc);
@@ -443,7 +489,7 @@ export function useJury(scenario: Scenario, mode: Mode) {
         timersRef
       );
     }
-  }, [scenario, mode, onResolved]);
+  }, [scenario, mode, onResolved, isLive, setJuryBusy]);
 
   const reset = useCallback(() => {
     timersRef.current.forEach((t) => clearTimeout(t));
@@ -454,7 +500,8 @@ export function useJury(scenario: Scenario, mode: Mode) {
     setJurors(idleJurors(scenario.jurors));
     setPhase("idle");
     setVerdict(null);
-  }, [scenario]);
+    setJuryBusy(false);
+  }, [scenario, setJuryBusy]);
 
   const appeal = useCallback(() => {
     timersRef.current.forEach((t) => clearTimeout(t));
@@ -478,8 +525,9 @@ export function useJury(scenario: Scenario, mode: Mode) {
     setPhase("deliberating");
     setVerdict(null);
     setJurors([...tier1, ...tier2Live]);
+    setJuryBusy(true);
 
-    if (LIVE_MODE) {
+    if (isLive) {
       const acs: AbortController[] = [];
       const semaphoreAc = new AbortController();
       acs.push(semaphoreAc);
@@ -504,7 +552,7 @@ export function useJury(scenario: Scenario, mode: Mode) {
     } else {
       runStream(tier2Specs, 5, mode, 11, 2, setJurors, onResolved, timersRef);
     }
-  }, [jurors, mode, scenario.id, onResolved]);
+  }, [jurors, mode, scenario.id, onResolved, isLive, setJuryBusy]);
 
   return { jurors, phase, verdict, tier, convene, reset, appeal };
 }
