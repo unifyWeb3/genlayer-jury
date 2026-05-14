@@ -46,6 +46,7 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${fraunces.variable} ${jetbrainsMono.variable}`}
+      suppressHydrationWarning
     >
       <head>
         <link

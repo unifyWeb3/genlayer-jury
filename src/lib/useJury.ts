@@ -111,6 +111,34 @@ function generateTier2Jurors(tally: VerdictTally): Juror[] {
   }));
 }
 
+// ── Live concurrency semaphore ────────────────────────────────────────────────
+
+const LIVE_CONCURRENCY = 2;
+
+// Runs tasks with at most `limit` executing in parallel. Respects abort signal
+// to stop launching new tasks if the convene cycle is cancelled.
+async function runWithSemaphore<T>(
+  tasks: Array<() => Promise<T>>,
+  limit: number,
+  signal?: AbortSignal
+): Promise<void> {
+  const queue = [...tasks];
+  const inFlight = new Set<Promise<unknown>>();
+
+  while (queue.length > 0 || inFlight.size > 0) {
+    if (signal?.aborted) break;
+    while (inFlight.size < limit && queue.length > 0 && !signal?.aborted) {
+      const task = queue.shift()!;
+      // Use let + immediate assignment so the finally callback can capture p
+      // after it is assigned (runs asynchronously, so p is always defined).
+      let p: Promise<unknown>;
+      p = (task() as Promise<unknown>).finally(() => inFlight.delete(p));
+      inFlight.add(p);
+    }
+    if (inFlight.size > 0) await Promise.race(inFlight);
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const idleJurors = (jurors: Juror[]): LiveJuror[] =>
@@ -383,10 +411,12 @@ export function useJury(scenario: Scenario, mode: Mode) {
 
     if (LIVE_MODE) {
       const acs: AbortController[] = [];
+      const semaphoreAc = new AbortController();
+      acs.push(semaphoreAc);
       abortControllersRef.current = acs;
-      scenario.jurors.forEach((juror, i) => {
-        const t = setTimeout(() => {
-          void streamJurorLive(
+      void runWithSemaphore(
+        scenario.jurors.map((juror, i) => () =>
+          streamJurorLive(
             juror.seat,
             scenario.id,
             mode,
@@ -396,10 +426,11 @@ export function useJury(scenario: Scenario, mode: Mode) {
             setJurors,
             onResolved,
             acs
-          );
-        }, i * 400);
-        timersRef.current.push(t);
-      });
+          )
+        ),
+        LIVE_CONCURRENCY,
+        semaphoreAc.signal
+      );
     } else {
       runStream(
         scenario.jurors,
@@ -450,11 +481,12 @@ export function useJury(scenario: Scenario, mode: Mode) {
 
     if (LIVE_MODE) {
       const acs: AbortController[] = [];
+      const semaphoreAc = new AbortController();
+      acs.push(semaphoreAc);
       abortControllersRef.current = acs;
-      // Seats 6–11: stagger tier-2 calls by 400ms each
-      tier2Specs.forEach((spec, localIdx) => {
-        const t = setTimeout(() => {
-          void streamJurorLive(
+      void runWithSemaphore(
+        tier2Specs.map((spec, localIdx) => () =>
+          streamJurorLive(
             spec.seat,
             scenario.id,
             mode,
@@ -464,10 +496,11 @@ export function useJury(scenario: Scenario, mode: Mode) {
             setJurors,
             onResolved,
             acs
-          );
-        }, localIdx * 400);
-        timersRef.current.push(t);
-      });
+          )
+        ),
+        LIVE_CONCURRENCY,
+        semaphoreAc.signal
+      );
     } else {
       runStream(tier2Specs, 5, mode, 11, 2, setJurors, onResolved, timersRef);
     }
