@@ -10,6 +10,16 @@ export type Juror = {
   charsPerSec: number;
 };
 
+export type ContractData = {
+  python: string;
+  whyMode: string;
+  whyNotEth: string;
+  annotations: Array<{
+    label: string;
+    detail: string;
+  }>;
+};
+
 export type Scenario = {
   id: string;
   caseNum: string;
@@ -18,13 +28,9 @@ export type Scenario = {
   question: string;
   recommendedMode: Mode;
   expectedVerdict: Verdict;
-  dispute: string;
+  dispute?: string;
   jurors: Juror[];
-  contract: {
-    python: string;
-    whyMode: string;
-    whyNotEth: string;
-  };
+  contract: ContractData;
 };
 
 const SEAT_LABELS = [
@@ -75,6 +81,23 @@ class FreelancerMilestone:
         "Non-comparative because fulfillment is a judgment call, not a number. Two validators may phrase 'material breach' differently but still reach the same conclusion — a rubric lets the sixth LLM judge whether they actually agree.",
       whyNotEth:
         "Ethereum can only evaluate on-chain data. It cannot reason about whether 8 slides substantially fulfills a 10-slide contract — that requires language understanding. A Solidity contract would need an oracle that reduces subjective fulfillment to a binary, which defeats the purpose.",
+      annotations: [
+        {
+          label: "State pins the promise",
+          detail:
+            "The contract stores the agreed deliverable and deadline so every validator judges against the same terms.",
+        },
+        {
+          label: "Rubric carries the dispute",
+          detail:
+            "The prompt preserves the subjective phrase 'materially fulfill' instead of pretending the answer is a simple counter check.",
+        },
+        {
+          label: "Non-comparative EP fits",
+          detail:
+            "Validators may explain breach differently, but the equivalence check asks whether their judgments resolve to the same yes/no outcome.",
+        },
+      ],
     },
     jurors: [
       { seat: 1, model: SEAT_LABELS[0], verdict: "no", text: "Two slides short and three days late constitutes material breach.", startDelay: 320, charsPerSec: 42 },
@@ -120,6 +143,23 @@ class ParametricFlightDelay:
         "Strict because the answer is a number. Every validator should fetch the same public flight tracker and return the same delay in minutes. Any output difference is a data error, not a legitimate interpretation gap.",
       whyNotEth:
         "Ethereum cannot reach out to flight tracker APIs. A Chainlink oracle could fetch the data, but it introduces a single point of trust. GenLayer validators each query the live web independently — unanimity among them is the proof.",
+      annotations: [
+        {
+          label: "Threshold is deterministic",
+          detail:
+            "The policy term is crisp: more than 120 minutes late. No moral or contextual interpretation is needed.",
+        },
+        {
+          label: "Nondeterminism is data access",
+          detail:
+            "The LLM call exists to fetch or interpret external flight data, not to arbitrate meaning.",
+        },
+        {
+          label: "Strict EP requires identity",
+          detail:
+            "If validators disagree on the minute count, the system treats it as a data failure rather than acceptable semantic variance.",
+        },
+      ],
     },
     jurors: [
       { seat: 1, model: SEAT_LABELS[0], verdict: "yes", text: "Delay of 2h 47m exceeds 2-hour threshold. Confirmed.", startDelay: 160, charsPerSec: 45 },
@@ -166,6 +206,23 @@ class DaoCharterReview:
         "Non-comparative because charter interpretation is inherently subjective. Multiple validators may reach the same conclusion for different reasons — the rubric (the charter text itself) anchors the judgment.",
       whyNotEth:
         "Ethereum smart contracts operate on deterministic logic. There is no opcode for 'violates the spirit of the charter.' A Solidity contract can enforce hard spending caps, but it cannot reason about intent — which is exactly what this dispute requires.",
+      annotations: [
+        {
+          label: "Charter text is the source of law",
+          detail:
+            "The contract does not invent a new rule; it asks validators to apply the DAO's own scope language.",
+        },
+        {
+          label: "Intent is the hard part",
+          detail:
+            "A festival could be argued as community growth, so the validator must reason about how far that phrase can stretch.",
+        },
+        {
+          label: "Rubric beats oracle voting",
+          detail:
+            "The Equivalence Principle lets multiple validators interpret the same charter instead of trusting one human resolver.",
+        },
+      ],
     },
     jurors: [
       { seat: 1, model: SEAT_LABELS[0], verdict: "no", text: "Music festival sponsorship is brand marketing, not protocol or community growth in the chartered sense.", startDelay: 380, charsPerSec: 36 },
@@ -216,6 +273,23 @@ class PredictionResolution:
         "Non-comparative because the resolution criteria has inherent ambiguity — 'GPT-5' vs 'GPT-5-mini.' Validators must apply judgment about what the market intended when the question was written. A rubric codifies that intent.",
       whyNotEth:
         "Ethereum prediction markets require a designated oracle or human arbiter for ambiguous resolutions. GenLayer replaces the arbiter with a supermajority of LLM validators, removing the single trusted party entirely.",
+      annotations: [
+        {
+          label: "Evidence is gathered first",
+          detail:
+            "The market resolution depends on public release facts as of the cutoff, so validators inspect evidence before judging.",
+        },
+        {
+          label: "The ambiguity is semantic",
+          detail:
+            "The core question is whether 'GPT-5-mini' satisfies the market's plain-language phrase 'GPT-5'.",
+        },
+        {
+          label: "Non-comparative EP protects intent",
+          detail:
+            "Validators compare their conclusion to the market's intended meaning, not to a brittle string match on product names.",
+        },
+      ],
     },
     jurors: [
       { seat: 1, model: SEAT_LABELS[0], verdict: "no", text: "'GPT-5-mini' is a variant, not GPT-5. The market specified the full model.", startDelay: 280, charsPerSec: 38 },
@@ -262,6 +336,23 @@ class AgentSlaAudit:
         "Non-comparative because 'peer-reviewed' requires definitional judgment — arXiv, for instance, is not peer-reviewed by traditional standards but is widely considered scholarly. Validators apply the rubric against the SLA's intent.",
       whyNotEth:
         "Ethereum cannot verify citation quality. An oracle would need to check each source against a curated allow-list, which is brittle and cannot adapt to new publication venues. GenLayer validators reason about quality directly.",
+      annotations: [
+        {
+          label: "SLA standard is explicit",
+          detail:
+            "The contract turns 'high-quality citations' into a stricter audit target: peer-reviewed academic sources only.",
+        },
+        {
+          label: "Source quality needs judgment",
+          detail:
+            "arXiv, Medium, and podcasts each require contextual classification rather than a simple URL lookup.",
+        },
+        {
+          label: "The all-citations test is strict",
+          detail:
+            "The validator must decide whether every citation satisfies the SLA, making partial compliance insufficient.",
+        },
+      ],
     },
     jurors: [
       { seat: 1, model: SEAT_LABELS[0], verdict: "no", text: "arXiv preprints aren't peer-reviewed; Medium and podcasts clearly aren't. SLA failed.", startDelay: 320, charsPerSec: 38 },
@@ -309,6 +400,23 @@ class ContentOriginality:
         "Non-comparative because authorship intent is inconclusive from detection scores alone. The rubric acknowledges that scores are probabilistic, and validators must weigh evidence rather than apply an arithmetic threshold.",
       whyNotEth:
         "Ethereum has no concept of 'plausibly human-authored.' A Solidity contract could check a score against a threshold, but the threshold is arbitrary and ignores context. This dispute needs interpretation, not arithmetic.",
+      annotations: [
+        {
+          label: "Detector score is evidence",
+          detail:
+            "The score influences the judgment, but it is not treated as a deterministic proof of authorship.",
+        },
+        {
+          label: "Author claim remains relevant",
+          detail:
+            "The prompt keeps the author's explanation in view so validators weigh intent and assistance level.",
+        },
+        {
+          label: "Undetermined is allowed",
+          detail:
+            "The contract can refuse overconfidence when probabilistic evidence does not settle originality.",
+        },
+      ],
     },
     jurors: [
       { seat: 1, model: SEAT_LABELS[0], verdict: "und", text: "Detection scores are probabilistic, not definitive. Author's claim is plausible.", startDelay: 360, charsPerSec: 34 },
@@ -317,6 +425,23 @@ class ContentOriginality:
       { seat: 4, model: SEAT_LABELS[3], verdict: "no", text: "Detection signal is strong. Original work claim not supported by evidence.", startDelay: 320, charsPerSec: 36 },
       { seat: 5, model: SEAT_LABELS[4], verdict: "und", text: "Authorship attribution requires more than a single detection score. Inconclusive.", startDelay: 540, charsPerSec: 30 },
     ],
+  },
+  {
+    id: "custom",
+    caseNum: "№ 24·???",
+    shortLabel: "Write your own case",
+    pattern: "custom sandbox",
+    question: "",
+    recommendedMode: "Non-comparative",
+    expectedVerdict: "und",
+    jurors: [
+      { seat: 1, model: SEAT_LABELS[0], verdict: "und", text: "Custom case received. Without author rubric, defaulting to undetermined.", startDelay: 200, charsPerSec: 38 },
+      { seat: 2, model: SEAT_LABELS[1], verdict: "und", text: "Sandbox mode — no scenario context. Verdict withheld.", startDelay: 320, charsPerSec: 36 },
+      { seat: 3, model: SEAT_LABELS[2], verdict: "und", text: "Live mode required for real deliberation on custom cases.", startDelay: 180, charsPerSec: 40 },
+      { seat: 4, model: SEAT_LABELS[3], verdict: "und", text: "Validators withhold judgment on cases without rubric.", startDelay: 420, charsPerSec: 34 },
+      { seat: 5, model: SEAT_LABELS[4], verdict: "und", text: "Toggle to live mode for actual LLM deliberation.", startDelay: 260, charsPerSec: 38 },
+    ],
+    contract: { python: "", whyMode: "", whyNotEth: "", annotations: [] },
   },
 ];
 

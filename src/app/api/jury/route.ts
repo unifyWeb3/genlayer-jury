@@ -1,5 +1,6 @@
 import https from "node:https";
 import dns from "node:dns/promises";
+import type { IncomingHttpHeaders } from "node:http";
 import { SCENARIOS } from "@/lib/scenarios";
 import type { Mode, Verdict } from "@/lib/scenarios";
 
@@ -7,6 +8,7 @@ import type { Mode, Verdict } from "@/lib/scenarios";
 
 export type SseEvent =
   | { type: "delta"; text: string }
+  | { type: "retry"; retryAfterMs: number }
   | { type: "verdict"; verdict: Verdict }
   | { type: "error"; message: string }
   | { type: "done" };
@@ -18,6 +20,7 @@ type RequestBody = {
   mode: Mode;
   seat: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
   modelId: string;
+  customQuestion?: string;
 };
 
 // ── OpenRouter chunk shape (partial) ─────────────────────────────────────────
@@ -29,12 +32,30 @@ type OrChunk = {
   }>;
 };
 
+export const maxDuration = 60;
+
+const OPENROUTER_TIMEOUT_MS = 55000;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const enc = new TextEncoder();
 
 function sseChunk(event: SseEvent): Uint8Array {
   return enc.encode(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function parseRetryAfterMs(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.ceil(seconds * 1000);
+  }
+
+  const dateMs = Date.parse(value);
+  if (Number.isNaN(dateMs)) return undefined;
+
+  return Math.max(0, dateMs - Date.now());
 }
 
 // Tolerant verdict parser — tries three strategies in order.
@@ -79,7 +100,7 @@ async function resolveIPv4(hostname: string): Promise<string> {
 }
 
 // Streams an HTTPS POST, calling onChunk for every content fragment.
-// Resolves when the response body ends with { statusCode, errorBody }.
+// Resolves when the response body ends with status, headers, and error body.
 function httpsPostStream(
   ip: string,
   hostname: string,
@@ -88,8 +109,16 @@ function httpsPostStream(
   reqBody: string,
   signal: AbortSignal,
   onChunk: (text: string) => void
-): Promise<{ statusCode: number; errorBody: string }> {
+): Promise<{
+  statusCode: number;
+  headers: IncomingHttpHeaders;
+  errorBody: string;
+}> {
   return new Promise((resolve, reject) => {
+    const abortError = () => {
+      const reason = signal.reason;
+      return reason instanceof Error ? reason : new Error("AbortError");
+    };
     const req = https.request(
       {
         host: ip,
@@ -107,6 +136,7 @@ function httpsPostStream(
           res.on("end", () =>
             resolve({
               statusCode: code,
+              headers: res.headers,
               errorBody: Buffer.concat(errBufs).toString("utf8"),
             })
           );
@@ -132,14 +162,20 @@ function httpsPostStream(
             }
           }
         });
-        res.on("end", () => resolve({ statusCode: code, errorBody: "" }));
+        res.on("end", () =>
+          resolve({ statusCode: code, headers: res.headers, errorBody: "" })
+        );
         res.on("error", reject);
       }
     );
     req.on("error", reject);
     signal.addEventListener("abort", () => {
-      req.destroy(new Error("AbortError"));
+      req.destroy(abortError());
     });
+    if (signal.aborted) {
+      req.destroy(abortError());
+      return;
+    }
     req.write(reqBody);
     req.end();
   });
@@ -157,7 +193,7 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  const { scenarioId, mode, seat, modelId } = body;
+  const { scenarioId, mode, seat, modelId, customQuestion } = body;
   const scenario = SCENARIOS.find((s) => s.id === scenarioId);
   if (!scenario) {
     return new Response(JSON.stringify({ error: "Scenario not found" }), {
@@ -175,10 +211,13 @@ UNDETERMINED - if there is not enough information to decide
 
 Then a brief reasoning. Example: "REJECT — the freelancer missed both the deadline and the slide count."`;
 
-  const userPrompt = scenario.question;
+  const userPrompt =
+    scenarioId === "custom" && customQuestion ? customQuestion : scenario.question;
 
   const abort = new AbortController();
-  const timeoutId = setTimeout(() => abort.abort(), 35000);
+  const timeoutId = setTimeout(() => {
+    abort.abort(new Error("timeout"));
+  }, OPENROUTER_TIMEOUT_MS);
 
   const apiKey = process.env.OPENROUTER_API_KEY ?? "";
   const siteUrl = process.env.OPENROUTER_SITE_URL ?? "";
@@ -218,8 +257,29 @@ Then a brief reasoning. Example: "REJECT — the freelancer missed both the dead
       };
       const emit = (event: SseEvent) => safeEnqueue(sseChunk(event));
 
-      // Close immediately if client aborts before we even start
-      abort.signal.addEventListener("abort", safeClose);
+      const emitFallback = (text: string) => {
+        emit({ type: "delta", text });
+        emit({ type: "verdict", verdict: "und" });
+        emit({ type: "done" });
+      };
+
+      let clientClosed = request.signal.aborted;
+      const handleClientAbort = () => {
+        clientClosed = true;
+        abort.abort(new Error("client-abort"));
+        safeClose();
+      };
+
+      request.signal.addEventListener("abort", handleClientAbort, {
+        once: true,
+      });
+
+      if (clientClosed) {
+        handleClientAbort();
+        clearTimeout(timeoutId);
+        request.signal.removeEventListener("abort", handleClientAbort);
+        return;
+      }
 
       try {
         const ip = await resolveIPv4("openrouter.ai");
@@ -227,7 +287,7 @@ Then a brief reasoning. Example: "REJECT — the freelancer missed both the dead
         let accumulated = "";
         let deltaCount = 0;
 
-        const { statusCode } = await httpsPostStream(
+        const { statusCode, headers } = await httpsPostStream(
           ip,
           "openrouter.ai",
           "/api/v1/chat/completions",
@@ -248,13 +308,30 @@ Then a brief reasoning. Example: "REJECT — the freelancer missed both the dead
         );
 
         if (statusCode < 200 || statusCode >= 300) {
+          const retryAfterHeader = headers["retry-after"];
+          const retryAfter = Array.isArray(retryAfterHeader)
+            ? retryAfterHeader[0]
+            : retryAfterHeader;
+          const retryAfterMs = parseRetryAfterMs(retryAfter);
+          const retrySuffix =
+            typeof retryAfter === "string" && retryAfter.trim()
+              ? ` Retry after ${retryAfter.trim()}s.`
+              : "";
           const userMsg =
-            statusCode === 429
-              ? "Model temporarily rate-limited — validator defaulting to undetermined."
-              : `Validator unavailable (${statusCode}).`;
-          emit({ type: "delta", text: userMsg });
-          emit({ type: "verdict", verdict: "und" });
-          emit({ type: "done" });
+            statusCode === 429 || statusCode === 503
+              ? `Rate-limited by OpenRouter.${retrySuffix} Defaulting to undetermined.`
+              : `Validator unavailable (${statusCode}). Defaulting to undetermined.`;
+
+          if (statusCode === 429 || statusCode === 503) {
+            console.warn(
+              `[jury] seat ${seat}: OpenRouter ${statusCode}.${retrySuffix || " No Retry-After header."}`
+            );
+          }
+
+          if (retryAfterMs !== undefined) {
+            emit({ type: "retry", retryAfterMs });
+          }
+          emitFallback(userMsg);
           return;
         }
 
@@ -268,18 +345,25 @@ Then a brief reasoning. Example: "REJECT — the freelancer missed both the dead
         emit({ type: "done" });
       } catch (err) {
         const msg = (err as Error).message ?? "";
-        if (msg === "AbortError" || (err as Error).name === "AbortError") {
-          emit({ type: "delta", text: "Validator timed out — defaulting to undetermined." });
-          emit({ type: "verdict", verdict: "und" });
-          emit({ type: "done" });
+        if (clientClosed || msg === "client-abort") {
+          return;
+        }
+
+        if (msg === "timeout") {
+          emitFallback(
+            "Validator timed out after 55 seconds. Defaulting to undetermined."
+          );
+        } else if (msg === "AbortError" || (err as Error).name === "AbortError") {
+          emitFallback("Validator timed out. Defaulting to undetermined.");
         } else {
           console.error("[jury] error:", msg);
-          emit({ type: "delta", text: "Validator failed to respond — defaulting to undetermined." });
-          emit({ type: "verdict", verdict: "und" });
-          emit({ type: "done" });
+          emitFallback(
+            "Validator failed to respond. Defaulting to undetermined."
+          );
         }
       } finally {
         clearTimeout(timeoutId);
+        request.signal.removeEventListener("abort", handleClientAbort);
         safeClose();
       }
     },

@@ -271,7 +271,8 @@ async function streamJurorLive(
   tier: 1 | 2,
   setJurors: (fn: (prev: LiveJuror[]) => LiveJuror[]) => void,
   onResolved: (v: FinalVerdict) => void,
-  abortControllers: AbortController[]
+  abortControllers: AbortController[],
+  customQuestion?: string
 ): Promise<LiveTaskResult> {
   const ac = new AbortController();
   abortControllers.push(ac);
@@ -317,6 +318,7 @@ async function streamJurorLive(
         mode,
         seat,
         modelId: modelForSeat(seat),
+        ...(scenarioId === "custom" && customQuestion ? { customQuestion } : {}),
       }),
       signal: ac.signal,
     });
@@ -399,7 +401,7 @@ async function streamJurorLive(
 
 // ── useJury hook ──────────────────────────────────────────────────────────────
 
-export function useJury(scenario: Scenario, mode: Mode) {
+export function useJury(scenario: Scenario, mode: Mode, customQuestion?: string) {
   const { mode: juryMode, setJuryBusy } = useMode();
   const isLive = juryMode === "live";
 
@@ -471,7 +473,8 @@ export function useJury(scenario: Scenario, mode: Mode) {
             1,
             setJurors,
             onResolved,
-            acs
+            acs,
+            customQuestion
           )
         ),
         LIVE_CONCURRENCY,
@@ -489,7 +492,7 @@ export function useJury(scenario: Scenario, mode: Mode) {
         timersRef
       );
     }
-  }, [scenario, mode, onResolved, isLive, setJuryBusy]);
+  }, [scenario, mode, onResolved, isLive, setJuryBusy, customQuestion]);
 
   const reset = useCallback(() => {
     timersRef.current.forEach((t) => clearTimeout(t));
@@ -543,7 +546,8 @@ export function useJury(scenario: Scenario, mode: Mode) {
             2,
             setJurors,
             onResolved,
-            acs
+            acs,
+            customQuestion
           )
         ),
         LIVE_CONCURRENCY,
@@ -552,7 +556,7 @@ export function useJury(scenario: Scenario, mode: Mode) {
     } else {
       runStream(tier2Specs, 5, mode, 11, 2, setJurors, onResolved, timersRef);
     }
-  }, [jurors, mode, scenario.id, onResolved, isLive, setJuryBusy]);
+  }, [jurors, mode, scenario.id, onResolved, isLive, setJuryBusy, customQuestion]);
 
   return { jurors, phase, verdict, tier, convene, reset, appeal };
 }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SCENARIOS, type Mode, type Scenario } from "@/lib/scenarios";
 import { useJury, type LiveJuror } from "@/lib/useJury";
 import { useJuryContext } from "@/lib/JuryContext";
+import { useMode } from "@/lib/ModeContext";
 
 const MODES: Mode[] = ["Strict", "Comparative", "Non-comparative"];
 
@@ -468,22 +469,30 @@ export function Simulator({
   );
   const [mode, setMode] = useState<Mode>(scenario.recommendedMode);
   const [contractOpen, setContractOpen] = useState(defaultContractOpen);
+  const [customQuestion, setCustomQuestion] = useState("");
 
   useMemo(() => {
     if (!lockedScenarioId) setMode(scenario.recommendedMode);
   }, [scenario.recommendedMode, lockedScenarioId]);
 
+  useEffect(() => {
+    setCustomQuestion("");
+  }, [scenarioId]);
+
   const { jurors, phase, verdict, tier, convene, reset, appeal } = useJury(
     scenario,
-    mode
+    mode,
+    customQuestion
   );
 
   const { setTier: setCtxTier } = useJuryContext();
+  const { mode: juryMode } = useMode();
+
   useEffect(() => {
     setCtxTier(tier);
   }, [tier, setCtxTier]);
 
-  const charCount = scenario.question.length;
+  const charCount = scenario.id === "custom" ? customQuestion.length : scenario.question.length;
 
   return (
     <section
@@ -511,7 +520,7 @@ export function Simulator({
         <div className="mt-16">
           <span className="overline block mb-4">Select a case</span>
           <div className="flex flex-wrap gap-2">
-            {SCENARIOS.map((s) => (
+            {SCENARIOS.filter((s) => s.id !== "custom").map((s) => (
               <button
                 key={s.id}
                 onClick={() => {
@@ -541,6 +550,28 @@ export function Simulator({
                 {s.shortLabel}
               </button>
             ))}
+            <button
+              onClick={() => {
+                setScenarioId("custom");
+                reset();
+                setContractOpen(false);
+              }}
+              disabled={phase === "deliberating"}
+              className="font-[family-name:var(--font-mono)] uppercase cursor-pointer px-4 py-2.5 rounded-[2px]"
+              style={{
+                fontSize: 11,
+                letterSpacing: "0.15em",
+                fontStyle: "italic",
+                border: "2px dashed",
+                background: scenarioId === "custom" ? "rgba(197,255,60,0.08)" : "transparent",
+                borderColor: scenarioId === "custom" ? "var(--color-accent)" : "var(--color-rule-strong)",
+                color: scenarioId === "custom" ? "var(--color-accent)" : "var(--color-ink-muted)",
+                transition:
+                  "color 0.12s var(--ease-tribunal), background 0.28s var(--ease-tribunal), border-color 0.12s var(--ease-tribunal)",
+              }}
+            >
+              Write your own case →
+            </button>
           </div>
         </div>
       )}
@@ -624,22 +655,43 @@ export function Simulator({
           <span className="overline">Question on Trial</span>
           <span className="overline overline-faint">{charCount} / 500</span>
         </div>
-        <p
-          className="m-0 italic"
-          style={{
-            fontFamily: "var(--font-display)",
-            fontWeight: 400,
-            fontSize: 22,
-            lineHeight: 1.4,
-            color: "var(--color-ink)",
-          }}
-        >
-          &quot;{scenario.question}&quot;
-        </p>
-        <div className="flex gap-4 mt-2 items-center">
+        {scenario.id === "custom" ? (
+          <textarea
+            value={customQuestion}
+            onChange={(e) => setCustomQuestion(e.target.value.slice(0, 500))}
+            placeholder="Type a subjective dispute. Example: Did the contractor fulfill a verbal agreement to 'paint the room professionally' if they finished in 2 hours but left visible streaks?"
+            disabled={phase === "deliberating"}
+            rows={3}
+            className="w-full bg-transparent border-0 resize-none focus:outline-none italic"
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 400,
+              fontSize: 22,
+              lineHeight: 1.4,
+              color: "var(--color-ink)",
+            }}
+          />
+        ) : (
+          <p
+            className="m-0 italic"
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 400,
+              fontSize: 22,
+              lineHeight: 1.4,
+              color: "var(--color-ink)",
+            }}
+          >
+            &quot;{scenario.question}&quot;
+          </p>
+        )}
+        <div className="flex gap-4 mt-2 items-center flex-wrap">
           <button
             onClick={convene}
-            disabled={phase === "deliberating"}
+            disabled={
+              phase === "deliberating" ||
+              (scenario.id === "custom" && customQuestion.trim().length < 10)
+            }
             className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {phase === "idle" && "Convene the jury →"}
@@ -658,6 +710,11 @@ export function Simulator({
               Reset
             </button>
           )}
+          {scenario.id === "custom" && customQuestion.trim().length < 10 && phase === "idle" && (
+            <span className="mono-sm" style={{ color: "var(--color-ink-faint)" }}>
+              Write at least 10 characters to summon the jury.
+            </span>
+          )}
         </div>
       </div>
 
@@ -673,8 +730,21 @@ export function Simulator({
         onAppeal={appeal}
       />
 
-      {/* CONTRACT SECTION — visible once resolved */}
-      {phase === "resolved" && (
+      {/* SANDBOX FOOTNOTE — custom cases only */}
+      {scenario.id === "custom" && phase === "resolved" && (
+        <p
+          className="mono-sm mt-4 text-center"
+          style={{ color: "var(--color-ink-faint)" }}
+        >
+          Sandbox mode — no contract reference, no author-recommended pattern.{" "}
+          {juryMode === "mocked"
+            ? "Toggle to live mode for real LLM deliberation."
+            : "Live LLM deliberation."}
+        </p>
+      )}
+
+      {/* CONTRACT SECTION — visible once resolved, hidden for custom */}
+      {phase === "resolved" && scenario.id !== "custom" && (
         <ContractSection
           contract={scenario.contract}
           open={contractOpen}
