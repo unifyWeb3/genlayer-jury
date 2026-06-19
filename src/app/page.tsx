@@ -5,6 +5,7 @@ import { Modes } from "@/components/Modes";
 import { Simulator } from "@/components/Simulator";
 import { Casebook } from "@/components/Casebook";
 import { Appeal } from "@/components/Appeal";
+import { FieldGuide } from "@/components/FieldGuide";
 import { FinalCta } from "@/components/FinalCta";
 
 export default function Home() {
@@ -18,6 +19,7 @@ export default function Home() {
         <Simulator />
         <Casebook />
         <Appeal />
+        <FieldGuide />
         <FinalCta />
       </main>
       <DocketFoot />

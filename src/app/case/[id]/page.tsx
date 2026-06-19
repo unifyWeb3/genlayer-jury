@@ -3,9 +3,13 @@ import Link from "next/link";
 import { SCENARIOS } from "@/lib/scenarios";
 import { Docket, DocketFoot } from "@/components/Docket";
 import { Simulator } from "@/components/Simulator";
+import { CaseContract } from "@/components/CaseContract";
+import { ChainVerdict } from "@/components/ChainVerdict";
+
+const CASEBOOK_SCENARIOS = SCENARIOS.slice(0, 5);
 
 export async function generateStaticParams() {
-  return [{ id: "freelancer" }, { id: "flight" }];
+  return CASEBOOK_SCENARIOS.map((scenario) => ({ id: scenario.id }));
 }
 
 export default async function CasePage({
@@ -14,14 +18,17 @@ export default async function CasePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const scenario = SCENARIOS.find((s) => s.id === id);
+  const scenario = CASEBOOK_SCENARIOS.find((s) => s.id === id);
   if (!scenario) notFound();
+
+  const currentIndex = CASEBOOK_SCENARIOS.findIndex((s) => s.id === id);
+  const nextScenario =
+    CASEBOOK_SCENARIOS[(currentIndex + 1) % CASEBOOK_SCENARIOS.length];
 
   return (
     <>
       <Docket subtitle={`${scenario.caseNum} — Detail View`} />
 
-      {/* HERO */}
       <section
         className="max-w-[1280px] mx-auto px-8 pt-24 pb-16 border-b"
         style={{ borderColor: "var(--color-rule)" }}
@@ -35,7 +42,12 @@ export default async function CasePage({
 
         <h1
           className="font-[family-name:var(--font-display)] font-light"
-          style={{ fontSize: "clamp(36px, 5vw, 72px)", lineHeight: 1.1, letterSpacing: "-0.02em", color: "var(--color-ink)" }}
+          style={{
+            fontSize: "clamp(36px, 5vw, 72px)",
+            lineHeight: 1.1,
+            letterSpacing: 0,
+            color: "var(--color-ink)",
+          }}
         >
           {scenario.shortLabel.replace("The ", "The ")}
         </h1>
@@ -91,27 +103,21 @@ export default async function CasePage({
               {scenario.expectedVerdict === "yes"
                 ? "Accepted"
                 : scenario.expectedVerdict === "no"
-                ? "Rejected"
-                : "Undetermined"}
+                  ? "Rejected"
+                  : "Undetermined"}
             </span>
           </div>
         </div>
       </section>
 
-      {/* LIVE SIMULATOR */}
-      <Simulator lockedScenarioId={id} defaultContractOpen={true} />
-
-      {/* TEACHING PANEL */}
       <section
-        className="max-w-[1280px] mx-auto px-8 py-24 border-t"
+        className="max-w-[1280px] mx-auto px-8 py-16 border-b"
         style={{ borderColor: "var(--color-rule)" }}
       >
-        <div className="flex justify-between items-baseline mb-16">
-          <span className="overline overline-accent">Case Analysis</span>
-          <span className="overline overline-faint">§ Annotation</span>
-        </div>
-
-        <div className="grid grid-cols-3 gap-0 border max-lg:grid-cols-1" style={{ borderColor: "var(--color-rule-strong)" }}>
+        <div
+          className="grid grid-cols-3 gap-0 border max-lg:grid-cols-1"
+          style={{ borderColor: "var(--color-rule-strong)" }}
+        >
           <div
             className="p-8 border-r max-lg:border-r-0 max-lg:border-b"
             style={{ borderColor: "var(--color-rule)" }}
@@ -133,19 +139,7 @@ export default async function CasePage({
             className="p-8 border-r max-lg:border-r-0 max-lg:border-b"
             style={{ borderColor: "var(--color-rule)" }}
           >
-            <span className="overline block mb-6">
-              Why{" "}
-              <em
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontStyle: "italic",
-                  color: "var(--color-accent)",
-                }}
-              >
-                {scenario.recommendedMode}
-              </em>
-              ?
-            </span>
+            <span className="overline block mb-6">Mode Fit</span>
             <p
               style={{
                 fontSize: 14,
@@ -174,9 +168,14 @@ export default async function CasePage({
         </div>
       </section>
 
-      {/* BACK NAVIGATION */}
+      {scenario.id === "flight" && <ChainVerdict />}
+
+      <Simulator lockedScenarioId={id} defaultContractOpen={true} />
+
+      <CaseContract scenario={scenario} />
+
       <div
-        className="max-w-[1280px] mx-auto px-8 pb-24 border-t"
+        className="max-w-[1280px] mx-auto px-8 pb-24 border-t flex justify-between gap-6 flex-wrap"
         style={{ borderColor: "var(--color-rule)" }}
       >
         <Link
@@ -198,6 +197,27 @@ export default async function CasePage({
             style={{ fontSize: 11, letterSpacing: "0.15em" }}
           >
             Back to Casebook
+          </span>
+        </Link>
+        <Link
+          href={`/case/${nextScenario.id}`}
+          className="inline-flex items-center gap-3 mt-12 no-underline group"
+          style={{ color: "var(--color-ink-muted)", textDecoration: "none" }}
+        >
+          <span
+            className="font-[family-name:var(--font-mono)] uppercase"
+            style={{ fontSize: 11, letterSpacing: "0.15em" }}
+          >
+            Next file · {nextScenario.shortLabel}
+          </span>
+          <span
+            className="font-[family-name:var(--font-mono)] group-hover:translate-x-1"
+            style={{
+              transition: "transform 0.28s var(--ease-tribunal)",
+              color: "var(--color-ink-faint)",
+            }}
+          >
+            →
           </span>
         </Link>
       </div>
