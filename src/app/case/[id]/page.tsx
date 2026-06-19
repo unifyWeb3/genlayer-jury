@@ -168,7 +168,25 @@ export default async function CasePage({
         </div>
       </section>
 
-      {scenario.id === "flight" && <ChainVerdict />}
+      {scenario.id === "flight" && (
+        <ChainVerdict
+          question="AA42 was scheduled to land at 14:00. The flight tracker shows it landed at 16:47. Did it land more than 2 hours late?"
+          apiEndpoint="/api/genlayer/flight"
+          contractAddress={process.env.NEXT_PUBLIC_FLIGHT_CONTRACT_ADDRESS ?? ""}
+          modeLabel="Strict mode · 5 validators"
+        />
+      )}
+
+      {scenario.id === "freelancer" && (
+        <ChainVerdict
+          question="A freelancer was paid $800 to deliver a 10-slide pitch deck by Friday. They delivered an 8-slide deck on Monday. Did they fulfill the contract?"
+          apiEndpoint="/api/genlayer/dispute"
+          contractAddress={process.env.NEXT_PUBLIC_DISPUTE_COURT_ADDRESS ?? ""}
+          mode="non_comparative"
+          criteria="The contract requires delivery of exactly 10 slides by Friday. Evaluate whether the freelancer materially fulfilled both requirements: (1) the slide count of 10, and (2) the Friday deadline. Delivering 8 slides (not 10) on Monday (not Friday) — missing both the count and the deadline with no prior notice — constitutes material breach unless the client waived the terms."
+          modeLabel="Non-comparative mode · 5 validators"
+        />
+      )}
 
       <Simulator lockedScenarioId={id} defaultContractOpen={true} />
 

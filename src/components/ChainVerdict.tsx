@@ -2,16 +2,26 @@
 
 import { useState } from "react";
 
-type Phase = "idle" | "submitting" | "waiting" | "resolved" | "error";
+export type ChainVerdictProps = {
+  question: string;
+  apiEndpoint: string;
+  contractAddress: string;
+  // Only required for the generic /api/genlayer/dispute route:
+  mode?: string;
+  criteria?: string;
+  // Displayed in the verdict line, e.g. "Strict mode" vs "Non-comparative mode"
+  modeLabel?: string;
+};
+
+type Phase = "idle" | "submitting" | "waiting" | "resolved" | "no_consensus" | "error";
 
 type SseEvent =
   | { type: "submitted"; txHash: string }
   | { type: "verdict"; verdict: string; reasoning: string }
+  | { type: "no_consensus"; txHash: string; message: string }
   | { type: "error"; message: string }
   | { type: "done" };
 
-const CONTRACT_ADDRESS =
-  process.env.NEXT_PUBLIC_FLIGHT_CONTRACT_ADDRESS ?? "";
 const EXPLORER_BASE =
   process.env.NEXT_PUBLIC_GENLAYER_EXPLORER_URL ?? "https://studio.genlayer.com/";
 
@@ -19,11 +29,19 @@ function truncateHex(hex: string): string {
   return hex.length > 18 ? hex.slice(0, 10) + "…" + hex.slice(-6) : hex;
 }
 
-export function ChainVerdict() {
+export function ChainVerdict({
+  question,
+  apiEndpoint,
+  contractAddress,
+  mode,
+  criteria,
+  modeLabel = "5 validators",
+}: ChainVerdictProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [txHash, setTxHash] = useState("");
   const [verdict, setVerdict] = useState("");
   const [reasoning, setReasoning] = useState("");
+  const [noConsensusMsg, setNoConsensusMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
   async function run() {
@@ -31,11 +49,24 @@ export function ChainVerdict() {
     setTxHash("");
     setVerdict("");
     setReasoning("");
+    setNoConsensusMsg("");
     setErrorMsg("");
+
+    // Generate a unique dispute ID per run so the same case can be run multiple times.
+    const disputeId = `dispute-${Date.now()}`;
+
+    const isDisputeRoute = mode !== undefined;
+    const fetchInit: RequestInit = isDisputeRoute
+      ? {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ disputeId, question, mode, criteria: criteria ?? "" }),
+        }
+      : { method: "POST" };
 
     let res: Response;
     try {
-      res = await fetch("/api/genlayer/flight", { method: "POST" });
+      res = await fetch(apiEndpoint, fetchInit);
     } catch {
       setPhase("error");
       setErrorMsg("Could not reach the server.");
@@ -74,6 +105,10 @@ export function ChainVerdict() {
             setVerdict(ev.verdict);
             setReasoning(ev.reasoning);
             setPhase("resolved");
+          } else if (ev.type === "no_consensus") {
+            setTxHash(ev.txHash);
+            setNoConsensusMsg(ev.message);
+            setPhase("no_consensus");
           } else if (ev.type === "error") {
             setErrorMsg(ev.message);
             setPhase("error");
@@ -81,7 +116,7 @@ export function ChainVerdict() {
         }
       }
     } catch {
-      if (phase !== "resolved") {
+      if (phase !== "resolved" && phase !== "no_consensus") {
         setPhase("error");
         setErrorMsg("Connection lost.");
       }
@@ -96,6 +131,7 @@ export function ChainVerdict() {
       : "var(--color-ink-muted)";
 
   const isRunning = phase === "submitting" || phase === "waiting";
+  const isDone = phase === "resolved" || phase === "no_consensus" || phase === "error";
 
   return (
     <section
@@ -107,17 +143,12 @@ export function ChainVerdict() {
         <span className="overline overline-faint">Deployed · Studionet</span>
       </div>
 
-      <div
-        className="border"
-        style={{ borderColor: "var(--color-rule-strong)" }}
-      >
+      <div className="border" style={{ borderColor: "var(--color-rule-strong)" }}>
+
         {/* Contract address bar */}
         <div
           className="flex justify-between items-center px-8 py-4 border-b flex-wrap gap-3"
-          style={{
-            borderColor: "var(--color-rule)",
-            background: "var(--color-surface)",
-          }}
+          style={{ borderColor: "var(--color-rule)", background: "var(--color-surface)" }}
         >
           <div className="flex items-center gap-3">
             <span
@@ -130,7 +161,7 @@ export function ChainVerdict() {
               className="font-[family-name:var(--font-mono)]"
               style={{ fontSize: 12, color: "var(--color-ink-muted)" }}
             >
-              {CONTRACT_ADDRESS || "—"}
+              {contractAddress || "—"}
             </span>
           </div>
           <a
@@ -149,7 +180,7 @@ export function ChainVerdict() {
           </a>
         </div>
 
-        {/* Question + trigger */}
+        {/* Question + run button */}
         <div
           className="px-8 py-8 flex justify-between items-end gap-8 flex-wrap border-b"
           style={{ borderColor: "var(--color-rule)" }}
@@ -163,8 +194,7 @@ export function ChainVerdict() {
               color: "var(--color-ink)",
             }}
           >
-            &ldquo;AA42 was scheduled to land at 14:00. The flight tracker
-            shows it landed at 16:47. Did it land more than 2 hours late?&rdquo;
+            &ldquo;{question}&rdquo;
           </p>
           <button
             onClick={run}
@@ -174,12 +204,11 @@ export function ChainVerdict() {
             {phase === "idle" && "Run on GenLayer →"}
             {phase === "submitting" && "Submitting tx…"}
             {phase === "waiting" && "Awaiting consensus…"}
-            {phase === "resolved" && "Run again →"}
-            {phase === "error" && "Retry →"}
+            {isDone && "Run again →"}
           </button>
         </div>
 
-        {/* Transaction hash row — appears after submission */}
+        {/* Transaction hash row */}
         {txHash && (
           <div
             className="px-8 py-4 flex items-center gap-4 flex-wrap border-b"
@@ -215,18 +244,13 @@ export function ChainVerdict() {
           </div>
         )}
 
-        {/* Verdict — shown when resolved */}
+        {/* Verdict */}
         {phase === "resolved" && (
           <div className="px-8 py-8">
             <div className="flex items-baseline gap-6 mb-4 flex-wrap">
               <span
                 className="font-[family-name:var(--font-mono)] uppercase"
-                style={{
-                  fontSize: 18,
-                  letterSpacing: "0.12em",
-                  fontWeight: 600,
-                  color: verdictColor,
-                }}
+                style={{ fontSize: 18, letterSpacing: "0.12em", fontWeight: 600, color: verdictColor }}
               >
                 {verdict}
               </span>
@@ -234,18 +258,34 @@ export function ChainVerdict() {
                 className="font-[family-name:var(--font-mono)]"
                 style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
               >
-                Equivalence Principle · Strict mode · 5 validators
+                Equivalence Principle · {modeLabel}
               </span>
             </div>
-            <p
-              className="m-0"
-              style={{
-                fontSize: 14,
-                lineHeight: 1.65,
-                color: "var(--color-ink-muted)",
-              }}
-            >
+            <p className="m-0" style={{ fontSize: 14, lineHeight: 1.65, color: "var(--color-ink-muted)" }}>
               {reasoning}
+            </p>
+          </div>
+        )}
+
+        {/* No consensus — valid outcome, framed educationally */}
+        {phase === "no_consensus" && (
+          <div className="px-8 py-8">
+            <div className="flex items-baseline gap-6 mb-4 flex-wrap">
+              <span
+                className="font-[family-name:var(--font-mono)] uppercase"
+                style={{ fontSize: 18, letterSpacing: "0.12em", fontWeight: 600, color: "var(--color-verdict-und)" }}
+              >
+                No Consensus
+              </span>
+              <span
+                className="font-[family-name:var(--font-mono)]"
+                style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
+              >
+                Equivalence Principle · {modeLabel} · appeal available
+              </span>
+            </div>
+            <p className="m-0" style={{ fontSize: 14, lineHeight: 1.65, color: "var(--color-ink-muted)" }}>
+              {noConsensusMsg}
             </p>
           </div>
         )}
