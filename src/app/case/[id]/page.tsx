@@ -54,7 +54,11 @@ export default async function CasePage({
 
         <p
           className="mt-8 max-w-[680px]"
-          style={{ fontSize: 18, lineHeight: 1.65, color: "var(--color-ink-muted)" }}
+          style={{
+            fontSize: 18,
+            lineHeight: 1.65,
+            color: "var(--color-ink-muted)",
+          }}
         >
           {scenario.dispute}
         </p>
@@ -62,28 +66,48 @@ export default async function CasePage({
         <div className="flex gap-6 mt-10 flex-wrap">
           <div
             className="border px-5 py-3"
-            style={{ borderColor: "var(--color-rule-strong)", background: "var(--color-surface)" }}
+            style={{
+              borderColor: "var(--color-rule-strong)",
+              background: "var(--color-surface)",
+            }}
           >
             <span
               className="font-[family-name:var(--font-mono)] uppercase block"
-              style={{ fontSize: 9, letterSpacing: "0.2em", color: "var(--color-ink-faint)", marginBottom: 6 }}
+              style={{
+                fontSize: 9,
+                letterSpacing: "0.2em",
+                color: "var(--color-ink-faint)",
+                marginBottom: 6,
+              }}
             >
               Mode
             </span>
             <span
               className="font-[family-name:var(--font-mono)] uppercase"
-              style={{ fontSize: 12, letterSpacing: "0.15em", color: "var(--color-accent)" }}
+              style={{
+                fontSize: 12,
+                letterSpacing: "0.15em",
+                color: "var(--color-accent)",
+              }}
             >
               {scenario.recommendedMode}
             </span>
           </div>
           <div
             className="border px-5 py-3"
-            style={{ borderColor: "var(--color-rule-strong)", background: "var(--color-surface)" }}
+            style={{
+              borderColor: "var(--color-rule-strong)",
+              background: "var(--color-surface)",
+            }}
           >
             <span
               className="font-[family-name:var(--font-mono)] uppercase block"
-              style={{ fontSize: 9, letterSpacing: "0.2em", color: "var(--color-ink-faint)", marginBottom: 6 }}
+              style={{
+                fontSize: 9,
+                letterSpacing: "0.2em",
+                color: "var(--color-ink-faint)",
+                marginBottom: 6,
+              }}
             >
               Expected verdict
             </span>
@@ -96,8 +120,8 @@ export default async function CasePage({
                   scenario.expectedVerdict === "yes"
                     ? "var(--color-verdict-yes)"
                     : scenario.expectedVerdict === "no"
-                    ? "var(--color-verdict-no)"
-                    : "var(--color-verdict-und)",
+                      ? "var(--color-verdict-no)"
+                      : "var(--color-verdict-und)",
               }}
             >
               {scenario.expectedVerdict === "yes"
@@ -172,7 +196,9 @@ export default async function CasePage({
         <ChainVerdict
           question="AA42 was scheduled to land at 14:00. The flight tracker shows it landed at 16:47. Did it land more than 2 hours late?"
           apiEndpoint="/api/genlayer/flight"
-          contractAddress={process.env.NEXT_PUBLIC_FLIGHT_CONTRACT_ADDRESS ?? ""}
+          contractAddress={
+            process.env.NEXT_PUBLIC_FLIGHT_CONTRACT_ADDRESS ?? ""
+          }
           modeLabel="Strict mode · 5 validators"
         />
       )}

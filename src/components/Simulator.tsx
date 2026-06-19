@@ -15,6 +15,22 @@ const MODE_TO_API: Record<Mode, string> = {
   "Non-comparative": "non_comparative",
 };
 
+const EXPLORER_BASE =
+  process.env.NEXT_PUBLIC_GENLAYER_EXPLORER_URL?.replace(/\/$/, "") ??
+  "https://studio.genlayer.com";
+
+function explorerAddressUrl(address: string) {
+  return `${EXPLORER_BASE}/address/${address}`;
+}
+
+function explorerTxUrl(hash: string) {
+  return `${EXPLORER_BASE}/tx/${hash}`;
+}
+
+function truncateHex(hex: string) {
+  return hex.length > 18 ? hex.slice(0, 10) + "…" + hex.slice(-6) : hex;
+}
+
 const DEFAULT_CRITERIA =
   "Judge the dispute fairly based on the facts presented in the question. " +
   "Determine UPHELD if the claim or position is justified by the stated facts, DISMISSED if it is not. " +
@@ -500,6 +516,11 @@ export function Simulator({
     setCustomQuestion("");
   }, [scenarioId]);
 
+  const courtAddress = process.env.NEXT_PUBLIC_DISPUTE_COURT_ADDRESS ?? "";
+  const courtExplorerUrl = courtAddress
+    ? explorerAddressUrl(courtAddress)
+    : EXPLORER_BASE;
+
   const { jurors, phase, verdict, tier, convene, reset, appeal } = useJury(
     scenario,
     mode,
@@ -887,7 +908,23 @@ export function Simulator({
             style={{ borderColor: "var(--color-rule)", background: "var(--color-surface)" }}
           >
             <span className="overline overline-accent">Run on GenLayer</span>
+<div className="flex flex-col items-end max-lg:items-start gap-1">
             <span className="overline overline-faint">DisputeCourt · Studionet</span>
+            <a
+              href={courtExplorerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-[family-name:var(--font-mono)] uppercase"
+              style={{
+                fontSize: 11,
+                letterSpacing: "0.15em",
+                color: "var(--color-accent)",
+                textDecoration: "none",
+              }}
+            >
+              Verify on-chain ↗
+            </a>
+          </div>
           </div>
 
           {/* Question echo — connects this panel to the primary textarea above */}
@@ -976,12 +1013,27 @@ export function Simulator({
               >
                 TX
               </span>
-              <span
-                className="font-[family-name:var(--font-mono)]"
-                style={{ fontSize: 12, color: "var(--color-ink-muted)" }}
-              >
-                {chainTxHash}
-              </span>
+              <div className="flex flex-col gap-1">
+                <a
+                  href={explorerTxUrl(chainTxHash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-[family-name:var(--font-mono)]"
+                  style={{ fontSize: 12, color: "var(--color-accent)", textDecoration: "none" }}
+                  title={chainTxHash}
+                >
+                  {truncateHex(chainTxHash)}
+                </a>
+                <a
+                  href={explorerTxUrl(chainTxHash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-[family-name:var(--font-mono)]"
+                  style={{ fontSize: 11, color: "var(--color-accent)", textDecoration: "none" }}
+                >
+                  View on GenLayer Explorer ↗
+                </a>
+              </div>
               {chainPhase === "waiting" && (
                 <span
                   className="font-[family-name:var(--font-mono)] pulse-tribunal ml-auto"

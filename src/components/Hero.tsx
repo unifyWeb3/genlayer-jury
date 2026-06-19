@@ -19,12 +19,20 @@ export function Hero() {
         className="grid grid-cols-[1fr_auto] items-end gap-8 mt-20 pt-8 border-t reveal reveal-d3 max-md:grid-cols-1 max-md:items-start"
         style={{ borderColor: "var(--color-rule)" }}
       >
-        <p className="body-lg m-0">
-          Smart contracts move money. Intelligent Contracts decide who{" "}
-          <em>deserves</em> it. Pose a subjective question, watch five LLMs
-          deliberate as GenLayer validators, and see the Equivalence Principle
-          deliver a verdict — live, in your browser.
-        </p>
+        <div>
+          <p className="body-lg m-0">
+            Smart contracts move money. Intelligent Contracts decide who{" "}
+            <em>deserves</em> it. Pose a subjective question, watch five LLMs
+            deliberate as GenLayer validators, and see the Equivalence Principle
+            deliver a verdict — live, in your browser.
+          </p>
+          <p
+            className="mt-4 font-[family-name:var(--font-mono)]"
+            style={{ fontSize: 12, lineHeight: 1.75, color: "var(--color-accent)", letterSpacing: "0.18em" }}
+          >
+            Live on GenLayer Studionet — every verdict is real on-chain validator consensus, verifiable on the block explorer.
+          </p>
+        </div>
         <div className="text-right max-md:text-left" style={{ color: "var(--color-ink-faint)" }}>
           <div className="mono-sm">Filed · GenLayer Builder Program</div>
           <div className="mono-sm mt-1">Educational Content · v0.1.0</div>

@@ -23,7 +23,16 @@ type SseEvent =
   | { type: "done" };
 
 const EXPLORER_BASE =
-  process.env.NEXT_PUBLIC_GENLAYER_EXPLORER_URL ?? "https://studio.genlayer.com/";
+  process.env.NEXT_PUBLIC_GENLAYER_EXPLORER_URL?.replace(/\/$/, "") ??
+  "https://studio.genlayer.com";
+
+function explorerAddressUrl(address: string) {
+  return `${EXPLORER_BASE}/address/${address}`;
+}
+
+function explorerTxUrl(hash: string) {
+  return `${EXPLORER_BASE}/tx/${hash}`;
+}
 
 function truncateHex(hex: string): string {
   return hex.length > 18 ? hex.slice(0, 10) + "…" + hex.slice(-6) : hex;
@@ -157,15 +166,27 @@ export function ChainVerdict({
             >
               Contract
             </span>
-            <span
+            <a
+              href={
+                contractAddress
+                  ? explorerAddressUrl(contractAddress)
+                  : EXPLORER_BASE
+              }
+              target="_blank"
+              rel="noopener noreferrer"
               className="font-[family-name:var(--font-mono)]"
-              style={{ fontSize: 12, color: "var(--color-ink-muted)" }}
+              style={{ fontSize: 12, color: "var(--color-ink-muted)", textDecoration: "none" }}
+              title={contractAddress}
             >
               {contractAddress || "—"}
-            </span>
+            </a>
           </div>
           <a
-            href={EXPLORER_BASE}
+            href={
+              contractAddress
+                ? explorerAddressUrl(contractAddress)
+                : EXPLORER_BASE
+            }
             target="_blank"
             rel="noopener noreferrer"
             className="font-[family-name:var(--font-mono)] uppercase"
@@ -176,7 +197,7 @@ export function ChainVerdict({
               textDecoration: "none",
             }}
           >
-            View on Studionet →
+            View contract on GenLayer Explorer ↗
           </a>
         </div>
 
@@ -220,19 +241,27 @@ export function ChainVerdict({
             >
               TX
             </span>
-            <span
-              className="font-[family-name:var(--font-mono)]"
-              style={{ fontSize: 12, color: "var(--color-ink-muted)" }}
-              title={txHash}
-            >
-              {truncateHex(txHash)}
-            </span>
-            <span
-              className="font-[family-name:var(--font-mono)]"
-              style={{ fontSize: 12, color: "var(--color-ink-faint)" }}
-            >
-              {txHash}
-            </span>
+            <div className="flex flex-col gap-1">
+              <a
+                href={explorerTxUrl(txHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-[family-name:var(--font-mono)]"
+                style={{ fontSize: 12, color: "var(--color-accent)", textDecoration: "none" }}
+                title={txHash}
+              >
+                {truncateHex(txHash)}
+              </a>
+              <a
+                href={explorerTxUrl(txHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-[family-name:var(--font-mono)]"
+                style={{ fontSize: 11, color: "var(--color-accent)", textDecoration: "none" }}
+              >
+                View on GenLayer Explorer ↗
+              </a>
+            </div>
             {phase === "waiting" && (
               <span
                 className="font-[family-name:var(--font-mono)] pulse-tribunal ml-auto"
