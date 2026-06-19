@@ -13,7 +13,13 @@ export type ChainVerdictProps = {
   modeLabel?: string;
 };
 
-type Phase = "idle" | "submitting" | "waiting" | "resolved" | "no_consensus" | "error";
+type Phase =
+  | "idle"
+  | "submitting"
+  | "waiting"
+  | "resolved"
+  | "no_consensus"
+  | "error";
 
 type SseEvent =
   | { type: "submitted"; txHash: string }
@@ -24,7 +30,7 @@ type SseEvent =
 
 const EXPLORER_BASE =
   process.env.NEXT_PUBLIC_GENLAYER_EXPLORER_URL?.replace(/\/$/, "") ??
-  "https://studio.genlayer.com";
+  "https://explorer-bradbury.genlayer.com";
 
 function explorerAddressUrl(address: string) {
   return `${EXPLORER_BASE}/address/${address}`;
@@ -69,7 +75,12 @@ export function ChainVerdict({
       ? {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ disputeId, question, mode, criteria: criteria ?? "" }),
+          body: JSON.stringify({
+            disputeId,
+            question,
+            mode,
+            criteria: criteria ?? "",
+          }),
         }
       : { method: "POST" };
 
@@ -136,11 +147,12 @@ export function ChainVerdict({
     verdict === "UPHELD"
       ? "var(--color-verdict-yes)"
       : verdict === "DISMISSED"
-      ? "var(--color-verdict-no)"
-      : "var(--color-ink-muted)";
+        ? "var(--color-verdict-no)"
+        : "var(--color-ink-muted)";
 
   const isRunning = phase === "submitting" || phase === "waiting";
-  const isDone = phase === "resolved" || phase === "no_consensus" || phase === "error";
+  const isDone =
+    phase === "resolved" || phase === "no_consensus" || phase === "error";
 
   return (
     <section
@@ -148,21 +160,32 @@ export function ChainVerdict({
       style={{ borderColor: "var(--color-rule)" }}
     >
       <div className="flex justify-between items-baseline mb-8 max-lg:flex-col max-lg:gap-3">
-        <span className="overline overline-accent">Live On-Chain Execution</span>
-        <span className="overline overline-faint">Deployed · Studionet</span>
+        <span className="overline overline-accent">
+          Live On-Chain Execution
+        </span>
+        <span className="overline overline-faint">Deployed · Bradbury</span>
       </div>
 
-      <div className="border" style={{ borderColor: "var(--color-rule-strong)" }}>
-
+      <div
+        className="border"
+        style={{ borderColor: "var(--color-rule-strong)" }}
+      >
         {/* Contract address bar */}
         <div
           className="flex justify-between items-center px-8 py-4 border-b flex-wrap gap-3"
-          style={{ borderColor: "var(--color-rule)", background: "var(--color-surface)" }}
+          style={{
+            borderColor: "var(--color-rule)",
+            background: "var(--color-surface)",
+          }}
         >
           <div className="flex items-center gap-3">
             <span
               className="font-[family-name:var(--font-mono)] uppercase"
-              style={{ fontSize: 9, letterSpacing: "0.2em", color: "var(--color-ink-faint)" }}
+              style={{
+                fontSize: 9,
+                letterSpacing: "0.2em",
+                color: "var(--color-ink-faint)",
+              }}
             >
               Contract
             </span>
@@ -175,7 +198,11 @@ export function ChainVerdict({
               target="_blank"
               rel="noopener noreferrer"
               className="font-[family-name:var(--font-mono)]"
-              style={{ fontSize: 12, color: "var(--color-ink-muted)", textDecoration: "none" }}
+              style={{
+                fontSize: 12,
+                color: "var(--color-ink-muted)",
+                textDecoration: "none",
+              }}
               title={contractAddress}
             >
               {contractAddress || "—"}
@@ -237,7 +264,11 @@ export function ChainVerdict({
           >
             <span
               className="font-[family-name:var(--font-mono)] uppercase"
-              style={{ fontSize: 9, letterSpacing: "0.2em", color: "var(--color-ink-faint)" }}
+              style={{
+                fontSize: 9,
+                letterSpacing: "0.2em",
+                color: "var(--color-ink-faint)",
+              }}
             >
               TX
             </span>
@@ -247,7 +278,11 @@ export function ChainVerdict({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-[family-name:var(--font-mono)]"
-                style={{ fontSize: 12, color: "var(--color-accent)", textDecoration: "none" }}
+                style={{
+                  fontSize: 12,
+                  color: "var(--color-accent)",
+                  textDecoration: "none",
+                }}
                 title={txHash}
               >
                 {truncateHex(txHash)}
@@ -257,7 +292,11 @@ export function ChainVerdict({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-[family-name:var(--font-mono)]"
-                style={{ fontSize: 11, color: "var(--color-accent)", textDecoration: "none" }}
+                style={{
+                  fontSize: 11,
+                  color: "var(--color-accent)",
+                  textDecoration: "none",
+                }}
               >
                 View on GenLayer Explorer ↗
               </a>
@@ -279,7 +318,12 @@ export function ChainVerdict({
             <div className="flex items-baseline gap-6 mb-4 flex-wrap">
               <span
                 className="font-[family-name:var(--font-mono)] uppercase"
-                style={{ fontSize: 18, letterSpacing: "0.12em", fontWeight: 600, color: verdictColor }}
+                style={{
+                  fontSize: 18,
+                  letterSpacing: "0.12em",
+                  fontWeight: 600,
+                  color: verdictColor,
+                }}
               >
                 {verdict}
               </span>
@@ -290,7 +334,14 @@ export function ChainVerdict({
                 Equivalence Principle · {modeLabel}
               </span>
             </div>
-            <p className="m-0" style={{ fontSize: 14, lineHeight: 1.65, color: "var(--color-ink-muted)" }}>
+            <p
+              className="m-0"
+              style={{
+                fontSize: 14,
+                lineHeight: 1.65,
+                color: "var(--color-ink-muted)",
+              }}
+            >
               {reasoning}
             </p>
           </div>
@@ -302,7 +353,12 @@ export function ChainVerdict({
             <div className="flex items-baseline gap-6 mb-4 flex-wrap">
               <span
                 className="font-[family-name:var(--font-mono)] uppercase"
-                style={{ fontSize: 18, letterSpacing: "0.12em", fontWeight: 600, color: "var(--color-verdict-und)" }}
+                style={{
+                  fontSize: 18,
+                  letterSpacing: "0.12em",
+                  fontWeight: 600,
+                  color: "var(--color-verdict-und)",
+                }}
               >
                 No Consensus
               </span>
@@ -313,7 +369,14 @@ export function ChainVerdict({
                 Equivalence Principle · {modeLabel} · appeal available
               </span>
             </div>
-            <p className="m-0" style={{ fontSize: 14, lineHeight: 1.65, color: "var(--color-ink-muted)" }}>
+            <p
+              className="m-0"
+              style={{
+                fontSize: 14,
+                lineHeight: 1.65,
+                color: "var(--color-ink-muted)",
+              }}
+            >
               {noConsensusMsg}
             </p>
           </div>
@@ -333,7 +396,7 @@ export function ChainVerdict({
                 className="m-0 mt-2 font-[family-name:var(--font-mono)]"
                 style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
               >
-                Tx submitted: {txHash} — check Studionet for status.
+                Tx submitted: {txHash} — check the explorer for status.
               </p>
             )}
           </div>

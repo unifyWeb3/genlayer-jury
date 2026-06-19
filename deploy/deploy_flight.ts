@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import path from 'path';
 import { createClient, createAccount } from 'genlayer-js';
-import { studionet } from 'genlayer-js/chains';
+import { testnetBradbury } from 'genlayer-js/chains';
 import {
   TransactionHash,
   TransactionStatus,
@@ -15,12 +15,12 @@ async function main(): Promise<void> {
 
   const privateKey = (rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`) as `0x${string}`;
   const account = createAccount(privateKey);
-  const client = createClient({ chain: studionet, account });
+  const client = createClient({ chain: testnetBradbury, account });
 
   const contractPath = path.resolve(process.cwd(), 'contracts/flight_delay.py');
   const code = new Uint8Array(readFileSync(contractPath));
 
-  console.log('Deploying FlightDelayDispute contract to studionet…');
+  console.log('Deploying FlightDelayDispute contract to testnet-bradbury…');
 
   try {
     await client.initializeConsensusSmartContract();
@@ -51,22 +51,21 @@ async function main(): Promise<void> {
     throw new Error(`Deployment failed. Receipt: ${JSON.stringify(receipt, null, 2)}`);
   }
 
-  // On studionet the address is in receipt.data.contract_address;
-  // on testnet chains it's in receipt.txDataDecoded.contractAddress.
+  // On testnet chains the address is in receipt.txDataDecoded.contractAddress.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const r = receipt as any;
   const contractAddress: string =
-    r?.data?.contract_address ??
+    r?.txDataDecoded?.contractAddress ??
     r?.toAddress ??
     r?.to_address ??
-    r?.txDataDecoded?.contractAddress;
+    r?.data?.contract_address;
 
-  console.log('\n✓ Contract deployed successfully!');
+  console.log('\n✓ Contract deployed successfully on testnet-bradbury!');
   console.log(`  Contract address : ${contractAddress}`);
   console.log(`  Deploy tx hash   : ${deployTx}`);
   console.log('\nCopy these into your .env.local:');
   console.log(`  NEXT_PUBLIC_FLIGHT_CONTRACT_ADDRESS=${contractAddress}`);
-  console.log(`  NEXT_PUBLIC_GENLAYER_EXPLORER_URL=https://studio.genlayer.com/`);
+  console.log(`  NEXT_PUBLIC_GENLAYER_EXPLORER_URL=https://explorer-bradbury.genlayer.com`);
 }
 
 main().catch((err: unknown) => {

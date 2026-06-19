@@ -1,5 +1,5 @@
 import { createClient, createAccount } from 'genlayer-js';
-import { studionet } from 'genlayer-js/chains';
+import { studionet, testnetAsimov, testnetBradbury, localnet } from 'genlayer-js/chains';
 import { TransactionStatus } from 'genlayer-js/types';
 
 export const maxDuration = 120;
@@ -17,8 +17,20 @@ type RequestBody = {
 
 type VerdictPayload = { verdict: string; reasoning: string };
 
+// Resolve chain from NEXT_PUBLIC_GENLAYER_NETWORK env var.
+// Defaults to testnetBradbury so network switching is config-only.
+function resolveChain() {
+  const network = process.env.NEXT_PUBLIC_GENLAYER_NETWORK ?? 'testnetBradbury';
+  switch (network) {
+    case 'studionet':     return studionet;
+    case 'testnetAsimov': return testnetAsimov;
+    case 'localnet':      return localnet;
+    default:              return testnetBradbury;
+  }
+}
+
 // Tolerant result parser — handles proper object, valid JSON string, and GenLayer's
-// known malformed-JSON bug (missing comma between dict fields).
+// known malformed-JSON serialization bug (missing comma between dict fields).
 function parseResult(raw: unknown): VerdictPayload | null {
   if (raw !== null && typeof raw === 'object') {
     const v = raw as Record<string, unknown>;
@@ -72,7 +84,7 @@ export async function POST(request: Request): Promise<Response> {
   const privateKey = (rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`) as `0x${string}`;
   const account = createAccount(privateKey);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client = createClient({ chain: studionet, account }) as any;
+  const client = createClient({ chain: resolveChain(), account }) as any;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(ctrl) {
@@ -136,8 +148,7 @@ export async function POST(request: Request): Promise<Response> {
         if (!payload) {
           emit({
             type: 'error',
-            message:
-              `Consensus reached but verdict could not be read. Tx: ${txHash}`,
+            message: `Consensus reached but verdict could not be read. Tx: ${txHash}`,
           });
           return;
         }
@@ -148,7 +159,7 @@ export async function POST(request: Request): Promise<Response> {
         emit({
           type: 'error',
           message: msg.toLowerCase().includes('timed out')
-            ? 'Consensus is taking longer than expected. Check the tx hash on Studionet.'
+            ? 'Consensus is taking longer than expected. Check the tx hash on the explorer.'
             : msg,
         });
       } finally {

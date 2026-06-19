@@ -17,7 +17,7 @@ const MODE_TO_API: Record<Mode, string> = {
 
 const EXPLORER_BASE =
   process.env.NEXT_PUBLIC_GENLAYER_EXPLORER_URL?.replace(/\/$/, "") ??
-  "https://studio.genlayer.com";
+  "https://explorer-bradbury.genlayer.com";
 
 function explorerAddressUrl(address: string) {
   return `${EXPLORER_BASE}/address/${address}`;
@@ -36,7 +36,13 @@ const DEFAULT_CRITERIA =
   "Determine UPHELD if the claim or position is justified by the stated facts, DISMISSED if it is not. " +
   "Base the decision on reasonable interpretation of the stated facts without assuming information not provided.";
 
-type ChainPhase = "idle" | "submitting" | "waiting" | "resolved" | "no_consensus" | "error";
+type ChainPhase =
+  | "idle"
+  | "submitting"
+  | "waiting"
+  | "resolved"
+  | "no_consensus"
+  | "error";
 
 type ChainSseEvent =
   | { type: "submitted"; txHash: string }
@@ -88,9 +94,30 @@ type TokenKind =
   | "plain";
 
 const PY_KEYWORDS = new Set([
-  "from", "import", "class", "def", "return", "if", "else", "elif", "for",
-  "in", "as", "lambda", "and", "or", "not", "True", "False", "None", "with",
-  "try", "except", "raise", "pass", "self",
+  "from",
+  "import",
+  "class",
+  "def",
+  "return",
+  "if",
+  "else",
+  "elif",
+  "for",
+  "in",
+  "as",
+  "lambda",
+  "and",
+  "or",
+  "not",
+  "True",
+  "False",
+  "None",
+  "with",
+  "try",
+  "except",
+  "raise",
+  "pass",
+  "self",
 ]);
 
 const TOKEN_COLORS: Record<TokenKind, string> = {
@@ -103,7 +130,9 @@ const TOKEN_COLORS: Record<TokenKind, string> = {
   plain: "#e2e8f0",
 };
 
-function tokenizePython(code: string): Array<{ text: string; kind: TokenKind }> {
+function tokenizePython(
+  code: string,
+): Array<{ text: string; kind: TokenKind }> {
   const result: Array<{ text: string; kind: TokenKind }> = [];
   let i = 0;
   while (i < code.length) {
@@ -272,7 +301,7 @@ export function ContractSection({
               Real deployable contract. No mocks.
             </span>
             <a
-              href="https://studio.genlayer.com"
+              href={EXPLORER_BASE}
               target="_blank"
               rel="noopener noreferrer"
               className="font-[family-name:var(--font-mono)] uppercase"
@@ -343,9 +372,12 @@ function JurorCard({
   return (
     <div
       className={`relative p-6 flex flex-col gap-4 min-h-[200px] ${
-        !isLast ? borderClass ?? "border-r max-sm:border-r-0" : ""
+        !isLast ? (borderClass ?? "border-r max-sm:border-r-0") : ""
       } max-lg:border-b max-sm:border-b`}
-      style={{ background: "var(--color-surface)", borderColor: "var(--color-rule)" }}
+      style={{
+        background: "var(--color-surface)",
+        borderColor: "var(--color-rule)",
+      }}
     >
       <span
         aria-hidden
@@ -379,8 +411,8 @@ function JurorCard({
           color: isStreaming
             ? "var(--color-ink-muted)"
             : juror.status === "idle"
-            ? "var(--color-ink-faint)"
-            : "var(--color-ink)",
+              ? "var(--color-ink-faint)"
+              : "var(--color-ink)",
         }}
       >
         {showText ? (
@@ -412,7 +444,11 @@ function JuryGrid({ jurors, tier }: { jurors: LiveJuror[]; tier: 1 | 2 }) {
         style={{ borderColor: "var(--color-rule)" }}
       >
         {tier1.map((juror, i) => (
-          <JurorCard key={`t1-${juror.seat}`} juror={juror} isLast={i === tier1.length - 1} />
+          <JurorCard
+            key={`t1-${juror.seat}`}
+            juror={juror}
+            isLast={i === tier1.length - 1}
+          />
         ))}
       </div>
     );
@@ -430,7 +466,11 @@ function JuryGrid({ jurors, tier }: { jurors: LiveJuror[]; tier: 1 | 2 }) {
       >
         <span
           className="font-[family-name:var(--font-mono)] uppercase"
-          style={{ fontSize: 10, letterSpacing: "0.18em", color: "var(--color-ink-faint)" }}
+          style={{
+            fontSize: 10,
+            letterSpacing: "0.18em",
+            color: "var(--color-ink-faint)",
+          }}
         >
           Tier 1 — Original Panel
         </span>
@@ -446,7 +486,11 @@ function JuryGrid({ jurors, tier }: { jurors: LiveJuror[]; tier: 1 | 2 }) {
         style={{ borderColor: "var(--color-rule)" }}
       >
         {tier1.map((juror, i) => (
-          <JurorCard key={`t1-${juror.seat}`} juror={juror} isLast={i === tier1.length - 1} />
+          <JurorCard
+            key={`t1-${juror.seat}`}
+            juror={juror}
+            isLast={i === tier1.length - 1}
+          />
         ))}
       </div>
 
@@ -460,7 +504,11 @@ function JuryGrid({ jurors, tier }: { jurors: LiveJuror[]; tier: 1 | 2 }) {
       >
         <span
           className="font-[family-name:var(--font-mono)] uppercase"
-          style={{ fontSize: 10, letterSpacing: "0.18em", color: "var(--color-accent)" }}
+          style={{
+            fontSize: 10,
+            letterSpacing: "0.18em",
+            color: "var(--color-accent)",
+          }}
         >
           Tier 2 — Appellate Panel
         </span>
@@ -498,11 +546,11 @@ export function Simulator({
   defaultContractOpen?: boolean;
 }) {
   const [scenarioId, setScenarioId] = useState<string>(
-    lockedScenarioId ?? SCENARIOS[0].id
+    lockedScenarioId ?? SCENARIOS[0].id,
   );
   const scenario = useMemo(
     () => SCENARIOS.find((s) => s.id === scenarioId) ?? SCENARIOS[0],
-    [scenarioId]
+    [scenarioId],
   );
   const [mode, setMode] = useState<Mode>(scenario.recommendedMode);
   const [contractOpen, setContractOpen] = useState(defaultContractOpen);
@@ -524,7 +572,7 @@ export function Simulator({
   const { jurors, phase, verdict, tier, convene, reset, appeal } = useJury(
     scenario,
     mode,
-    customQuestion
+    customQuestion,
   );
 
   const { setTier: setCtxTier } = useJuryContext();
@@ -534,7 +582,8 @@ export function Simulator({
     setCtxTier(tier);
   }, [tier, setCtxTier]);
 
-  const charCount = scenario.id === "custom" ? customQuestion.length : scenario.question.length;
+  const charCount =
+    scenario.id === "custom" ? customQuestion.length : scenario.question.length;
 
   // ── On-chain custom dispute state ──────────────────────────────────────────
   const [chainPhase, setChainPhase] = useState<ChainPhase>("idle");
@@ -576,7 +625,12 @@ export function Simulator({
       res = await fetch("/api/genlayer/dispute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ disputeId, question: customQuestion, mode: apiMode, criteria }),
+        body: JSON.stringify({
+          disputeId,
+          question: customQuestion,
+          mode: apiMode,
+          criteria,
+        }),
       });
     } catch {
       setChainPhase("error");
@@ -604,7 +658,11 @@ export function Simulator({
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           let ev: ChainSseEvent;
-          try { ev = JSON.parse(line.slice(6)) as ChainSseEvent; } catch { continue; }
+          try {
+            ev = JSON.parse(line.slice(6)) as ChainSseEvent;
+          } catch {
+            continue;
+          }
           if (ev.type === "submitted") {
             setChainTxHash(ev.txHash);
             setChainPhase("waiting");
@@ -673,7 +731,9 @@ export function Simulator({
                   fontSize: 11,
                   letterSpacing: "0.15em",
                   background:
-                    scenarioId === s.id ? "rgba(197,255,60,0.08)" : "transparent",
+                    scenarioId === s.id
+                      ? "rgba(197,255,60,0.08)"
+                      : "transparent",
                   borderColor:
                     scenarioId === s.id
                       ? "var(--color-accent)"
@@ -703,9 +763,18 @@ export function Simulator({
                 letterSpacing: "0.15em",
                 fontStyle: "italic",
                 border: "2px dashed",
-                background: scenarioId === "custom" ? "rgba(197,255,60,0.08)" : "transparent",
-                borderColor: scenarioId === "custom" ? "var(--color-accent)" : "var(--color-rule-strong)",
-                color: scenarioId === "custom" ? "var(--color-accent)" : "var(--color-ink-muted)",
+                background:
+                  scenarioId === "custom"
+                    ? "rgba(197,255,60,0.08)"
+                    : "transparent",
+                borderColor:
+                  scenarioId === "custom"
+                    ? "var(--color-accent)"
+                    : "var(--color-rule-strong)",
+                color:
+                  scenarioId === "custom"
+                    ? "var(--color-accent)"
+                    : "var(--color-ink-muted)",
                 transition:
                   "color 0.12s var(--ease-tribunal), background 0.28s var(--ease-tribunal), border-color 0.12s var(--ease-tribunal)",
               }}
@@ -742,7 +811,10 @@ export function Simulator({
                       : "0",
                   background:
                     mode === m ? "rgba(197,255,60,0.08)" : "transparent",
-                  color: mode === m ? "var(--color-accent)" : "var(--color-ink-muted)",
+                  color:
+                    mode === m
+                      ? "var(--color-accent)"
+                      : "var(--color-ink-muted)",
                   transition:
                     "color 0.12s var(--ease-tribunal), background 0.28s var(--ease-tribunal)",
                 }}
@@ -854,11 +926,16 @@ export function Simulator({
               Reset
             </button>
           )}
-          {scenario.id === "custom" && customQuestion.trim().length < 10 && phase === "idle" && (
-            <span className="mono-sm" style={{ color: "var(--color-ink-faint)" }}>
-              Write at least 10 characters to summon the jury.
-            </span>
-          )}
+          {scenario.id === "custom" &&
+            customQuestion.trim().length < 10 &&
+            phase === "idle" && (
+              <span
+                className="mono-sm"
+                style={{ color: "var(--color-ink-faint)" }}
+              >
+                Write at least 10 characters to summon the jury.
+              </span>
+            )}
         </div>
       </div>
 
@@ -905,26 +982,31 @@ export function Simulator({
           {/* Header */}
           <div
             className="flex justify-between items-center px-8 py-5 border-b"
-            style={{ borderColor: "var(--color-rule)", background: "var(--color-surface)" }}
+            style={{
+              borderColor: "var(--color-rule)",
+              background: "var(--color-surface)",
+            }}
           >
             <span className="overline overline-accent">Run on GenLayer</span>
-<div className="flex flex-col items-end max-lg:items-start gap-1">
-            <span className="overline overline-faint">DisputeCourt · Studionet</span>
-            <a
-              href={courtExplorerUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-[family-name:var(--font-mono)] uppercase"
-              style={{
-                fontSize: 11,
-                letterSpacing: "0.15em",
-                color: "var(--color-accent)",
-                textDecoration: "none",
-              }}
-            >
-              Verify on-chain ↗
-            </a>
-          </div>
+            <div className="flex flex-col items-end max-lg:items-start gap-1">
+              <span className="overline overline-faint">
+                DisputeCourt · Bradbury
+              </span>
+              <a
+                href={courtExplorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-[family-name:var(--font-mono)] uppercase"
+                style={{
+                  fontSize: 11,
+                  letterSpacing: "0.15em",
+                  color: "var(--color-accent)",
+                  textDecoration: "none",
+                }}
+              >
+                Verify on-chain ↗
+              </a>
+            </div>
           </div>
 
           {/* Question echo — connects this panel to the primary textarea above */}
@@ -962,7 +1044,9 @@ export function Simulator({
                 style={{ fontSize: 12, color: "var(--color-ink-faint)" }}
               >
                 ↑ Type your dispute in the{" "}
-                <span style={{ color: "var(--color-ink-muted)" }}>Your Dispute</span>{" "}
+                <span style={{ color: "var(--color-ink-muted)" }}>
+                  Your Dispute
+                </span>{" "}
                 box above to run it on-chain.
               </p>
             )}
@@ -987,7 +1071,8 @@ export function Simulator({
               {chainPhase === "waiting" && "Awaiting consensus…"}
               {(chainPhase === "resolved" ||
                 chainPhase === "no_consensus" ||
-                chainPhase === "error") && "Run again →"}
+                chainPhase === "error") &&
+                "Run again →"}
             </button>
             {customQuestion.trim().length < 10 && chainPhase === "idle" && (
               <span
@@ -995,7 +1080,9 @@ export function Simulator({
                 style={{ fontSize: 11, color: "var(--color-ink-muted)" }}
               >
                 Enter your dispute in the{" "}
-                <span style={{ color: "var(--color-accent)" }}>Your Dispute</span>{" "}
+                <span style={{ color: "var(--color-accent)" }}>
+                  Your Dispute
+                </span>{" "}
                 box above — not the criteria field below.
               </span>
             )}
@@ -1005,11 +1092,18 @@ export function Simulator({
           {chainTxHash && (
             <div
               className="px-8 py-4 flex items-center gap-4 flex-wrap border-b"
-              style={{ borderColor: "var(--color-rule)", background: "#080808" }}
+              style={{
+                borderColor: "var(--color-rule)",
+                background: "#080808",
+              }}
             >
               <span
                 className="font-[family-name:var(--font-mono)] uppercase"
-                style={{ fontSize: 9, letterSpacing: "0.2em", color: "var(--color-ink-faint)" }}
+                style={{
+                  fontSize: 9,
+                  letterSpacing: "0.2em",
+                  color: "var(--color-ink-faint)",
+                }}
               >
                 TX
               </span>
@@ -1019,7 +1113,11 @@ export function Simulator({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-[family-name:var(--font-mono)]"
-                  style={{ fontSize: 12, color: "var(--color-accent)", textDecoration: "none" }}
+                  style={{
+                    fontSize: 12,
+                    color: "var(--color-accent)",
+                    textDecoration: "none",
+                  }}
                   title={chainTxHash}
                 >
                   {truncateHex(chainTxHash)}
@@ -1029,7 +1127,11 @@ export function Simulator({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-[family-name:var(--font-mono)]"
-                  style={{ fontSize: 11, color: "var(--color-accent)", textDecoration: "none" }}
+                  style={{
+                    fontSize: 11,
+                    color: "var(--color-accent)",
+                    textDecoration: "none",
+                  }}
                 >
                   View on GenLayer Explorer ↗
                 </a>
@@ -1067,12 +1169,17 @@ export function Simulator({
                   className="font-[family-name:var(--font-mono)]"
                   style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
                 >
-                  Equivalence Principle · {MODE_TO_API[mode].replace("_", "-")} mode · 5 validators
+                  Equivalence Principle · {MODE_TO_API[mode].replace("_", "-")}{" "}
+                  mode · 5 validators
                 </span>
               </div>
               <p
                 className="m-0"
-                style={{ fontSize: 14, lineHeight: 1.65, color: "var(--color-ink-muted)" }}
+                style={{
+                  fontSize: 14,
+                  lineHeight: 1.65,
+                  color: "var(--color-ink-muted)",
+                }}
               >
                 {chainReasoning}
               </p>
@@ -1103,7 +1210,11 @@ export function Simulator({
               </div>
               <p
                 className="m-0"
-                style={{ fontSize: 14, lineHeight: 1.65, color: "var(--color-ink-muted)" }}
+                style={{
+                  fontSize: 14,
+                  lineHeight: 1.65,
+                  color: "var(--color-ink-muted)",
+                }}
               >
                 {chainMsg}
               </p>
@@ -1124,7 +1235,7 @@ export function Simulator({
                   className="m-0 mt-2 font-[family-name:var(--font-mono)]"
                   style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
                 >
-                  Tx submitted: {chainTxHash} — check Studionet for status.
+                  Tx submitted: {chainTxHash} — check the explorer for status.
                 </p>
               )}
             </div>
@@ -1133,7 +1244,10 @@ export function Simulator({
           {/* Criteria — secondary, below the run button and results */}
           <div
             className="px-8 py-5 border-t"
-            style={{ borderColor: "var(--color-rule)", background: "var(--color-surface)" }}
+            style={{
+              borderColor: "var(--color-rule)",
+              background: "var(--color-surface)",
+            }}
           >
             <span
               className="overline block mb-3"
@@ -1159,9 +1273,14 @@ export function Simulator({
             />
             <p
               className="m-0 mt-2 font-[family-name:var(--font-mono)]"
-              style={{ fontSize: 10, color: "var(--color-ink-faint)", letterSpacing: "0.05em" }}
+              style={{
+                fontSize: 10,
+                color: "var(--color-ink-faint)",
+                letterSpacing: "0.05em",
+              }}
             >
-              Runs on the real DisputeCourt contract · studionet · consensus 20–90 s · verifiable tx hash
+              Runs on the real DisputeCourt contract · testnet-bradbury · consensus
+              20–90 s · verifiable tx hash
             </p>
           </div>
         </div>
@@ -1193,7 +1312,7 @@ function VerdictBar({
       else acc.pending += 1;
       return acc;
     },
-    { yes: 0, no: 0, und: 0, pending: 0 }
+    { yes: 0, no: 0, und: 0, pending: 0 },
   );
 
   const showAppeal =
@@ -1211,9 +1330,21 @@ function VerdictBar({
       }}
     >
       <div className="flex gap-8 items-baseline max-lg:justify-center">
-        <Tally count={tally.yes} label="Accept" color="var(--color-verdict-yes)" />
-        <Tally count={tally.no} label="Reject" color="var(--color-verdict-no)" />
-        <Tally count={tally.und} label="Undet." color="var(--color-verdict-und)" />
+        <Tally
+          count={tally.yes}
+          label="Accept"
+          color="var(--color-verdict-yes)"
+        />
+        <Tally
+          count={tally.no}
+          label="Reject"
+          color="var(--color-verdict-no)"
+        />
+        <Tally
+          count={tally.und}
+          label="Undet."
+          color="var(--color-verdict-und)"
+        />
         <Tally
           count={tally.pending}
           label="Pending"

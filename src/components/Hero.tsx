@@ -28,12 +28,21 @@ export function Hero() {
           </p>
           <p
             className="mt-4 font-[family-name:var(--font-mono)]"
-            style={{ fontSize: 12, lineHeight: 1.75, color: "var(--color-accent)", letterSpacing: "0.18em" }}
+            style={{
+              fontSize: 12,
+              lineHeight: 1.75,
+              color: "var(--color-accent)",
+              letterSpacing: "0.18em",
+            }}
           >
-            Live on GenLayer Studionet — every verdict is real on-chain validator consensus, verifiable on the block explorer.
+            Live on GenLayer testnet-bradbury — every verdict is real on-chain
+            validator consensus, verifiable on the block explorer.
           </p>
         </div>
-        <div className="text-right max-md:text-left" style={{ color: "var(--color-ink-faint)" }}>
+        <div
+          className="text-right max-md:text-left"
+          style={{ color: "var(--color-ink-faint)" }}
+        >
           <div className="mono-sm">Filed · GenLayer Builder Program</div>
           <div className="mono-sm mt-1">Educational Content · v0.1.0</div>
         </div>

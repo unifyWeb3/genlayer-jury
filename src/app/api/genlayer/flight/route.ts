@@ -1,5 +1,5 @@
 import { createClient, createAccount } from 'genlayer-js';
-import { studionet } from 'genlayer-js/chains';
+import { studionet, testnetAsimov, testnetBradbury, localnet } from 'genlayer-js/chains';
 import { TransactionStatus } from 'genlayer-js/types';
 
 export const maxDuration = 120;
@@ -13,13 +13,21 @@ const FLIGHT_QUESTION =
 
 type VerdictPayload = { verdict: string; reasoning: string };
 
-// Tolerant verdict parser — handles three cases in order:
-//   1. Already a proper JS object with verdict/reasoning keys (ideal)
-//   2. Valid JSON string
-//   3. GenLayer's serialization-bug malformed JSON (missing comma between fields)
-//      e.g.  {"reasoning":"...The claim is upheld.""verdict":"UPHELD"}
+// Resolve chain from NEXT_PUBLIC_GENLAYER_NETWORK env var.
+// Defaults to testnetBradbury so network switching is config-only.
+function resolveChain() {
+  const network = process.env.NEXT_PUBLIC_GENLAYER_NETWORK ?? 'testnetBradbury';
+  switch (network) {
+    case 'studionet':    return studionet;
+    case 'testnetAsimov': return testnetAsimov;
+    case 'localnet':     return localnet;
+    default:             return testnetBradbury;
+  }
+}
+
+// Tolerant verdict parser — handles proper object, valid JSON string, and GenLayer's
+// known malformed-JSON serialization bug (missing comma between dict fields).
 function parseResultValue(res: unknown): VerdictPayload | null {
-  // Case 1 — proper object
   if (res !== null && typeof res === 'object') {
     const v = res as Record<string, unknown>;
     if (typeof v.verdict === 'string') {
@@ -29,8 +37,6 @@ function parseResultValue(res: unknown): VerdictPayload | null {
       };
     }
   }
-
-  // Case 2 / 3 — string (valid or malformed JSON from GenLayer runtime)
   if (typeof res === 'string' && res.length > 0) {
     try {
       const parsed = JSON.parse(res) as Record<string, unknown>;
@@ -41,8 +47,6 @@ function parseResultValue(res: unknown): VerdictPayload | null {
         };
       }
     } catch {
-      // Malformed JSON (GenLayer known serialization bug: missing comma between dict fields).
-      // Extract verdict word and reasoning text via regex.
       const verdictMatch = res.match(/\b(UPHELD|DISMISSED)\b/i);
       const reasoningMatch = res.match(/"reasoning"\s*:\s*"([^"]+)"/);
       if (verdictMatch) {
@@ -53,7 +57,6 @@ function parseResultValue(res: unknown): VerdictPayload | null {
       }
     }
   }
-
   return null;
 }
 
@@ -66,9 +69,8 @@ const REASONING: Record<string, string> = {
     'The recorded delay does not exceed the parametric threshold. The claim is dismissed.',
 };
 
-// Walks the studionet receipt (decoded by decodeLocalnetTransaction + simplified by
-// simplifyTransactionReceipt) to find the leader's execution result, then falls back to
-// eq_outputs (the raw voted value that passed strict_eq) if the result can't be parsed.
+// Walks the receipt (works for studio chains that decode consensus_data) to find the
+// leader's execution result, then falls back to eq_outputs for the strict_eq verdict word.
 function extractVerdictFromReceipt(receipt: unknown): VerdictPayload | null {
   const r = receipt as Record<string, unknown>;
   const cd = r?.consensus_data as Record<string, unknown> | undefined;
@@ -79,11 +81,10 @@ function extractVerdictFromReceipt(receipt: unknown): VerdictPayload | null {
 
   if (!lr) return null;
 
-  // Primary: parse the execution result of resolve_dispute (returns a dict).
   const payload = parseResultValue(lr.result);
   if (payload) return payload;
 
-  // Fallback: eq_outputs contains the exact word all 5 validators agreed on via strict_eq.
+  // Fallback: eq_outputs contains the exact word all validators agreed on via strict_eq.
   const eqRaw = lr.eq_outputs;
   const eqStr =
     typeof eqRaw === 'string'
@@ -116,7 +117,7 @@ export async function POST(request: Request): Promise<Response> {
   const privateKey = (rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`) as `0x${string}`;
   const account = createAccount(privateKey);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client = createClient({ chain: studionet, account }) as any;
+  const client = createClient({ chain: resolveChain(), account }) as any;
 
   const disputeId = `flight-${Date.now()}`;
 
@@ -163,14 +164,24 @@ export async function POST(request: Request): Promise<Response> {
           return;
         }
 
-        const payload = extractVerdictFromReceipt(receipt);
+        // Primary: parse verdict from receipt (works on studio chains).
+        let payload = extractVerdictFromReceipt(receipt);
+
+        // Fallback: readContract — the clean path; works on all chains including testnet.
         if (!payload) {
-          // Fallback message that still surfaces the tx hash so user can verify on explorer.
+          const raw = await client.readContract({
+            address: contractAddress,
+            functionName: 'get_verdict',
+            args: [disputeId],
+          });
+          payload = parseResultValue(raw);
+        }
+
+        if (!payload) {
           emit({
             type: 'error',
             message:
-              `Consensus reached (MAJORITY_AGREE) but verdict could not be read from receipt. ` +
-              `Tx: ${txHash} — check the block explorer for the result.`,
+              `Consensus reached but verdict could not be read. Tx: ${txHash} — check the explorer.`,
           });
           return;
         }
@@ -181,7 +192,7 @@ export async function POST(request: Request): Promise<Response> {
         emit({
           type: 'error',
           message: msg.toLowerCase().includes('timed out')
-            ? 'Consensus is taking longer than expected. Check the tx hash on Studionet.'
+            ? 'Consensus is taking longer than expected. Check the tx hash on the explorer.'
             : msg,
         });
       } finally {
