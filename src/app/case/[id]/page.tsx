@@ -188,6 +188,45 @@ export default async function CasePage({
         />
       )}
 
+      {scenario.id === "dao" && (
+        <ChainVerdict
+          question={scenario.question}
+          apiEndpoint="/api/genlayer/dispute"
+          contractAddress={process.env.NEXT_PUBLIC_DISPUTE_COURT_ADDRESS ?? ""}
+          mode="non_comparative"
+          criteria={
+            "Assess whether the $50K sponsorship falls within the DAO charter phrase 'protocol development and community growth'. Consider: (1) whether funds are directly tied to protocol development (code, audits, integrations), (2) whether the event materially and measurably advances community growth (targeted developer outreach, onboarding metrics), (3) budget reasonableness relative to treasury size, and (4) whether the proposal requires a charter amendment rather than interpretation. Answer yes or no only."
+          }
+          modeLabel="Non-comparative mode · 5 validators"
+        />
+      )}
+
+      {scenario.id === "prediction" && (
+        <ChainVerdict
+          question={scenario.question}
+          apiEndpoint="/api/genlayer/dispute"
+          contractAddress={process.env.NEXT_PUBLIC_DISPUTE_COURT_ADDRESS ?? ""}
+          mode="non_comparative"
+          criteria={
+            "Determine if the public release as of the cutoff constitutes 'GPT-5' for the market question. Inspect official OpenAI naming, release notes, and announcements: if the release is explicitly marketed or documented as 'GPT-5' (the flagship), answer yes; if it is a named subvariant (e.g., 'GPT-5-mini') or explicitly described as a separate product, answer no. Base judgment on ordinary market intent, not promotional spin. Answer yes or no only."
+          }
+          modeLabel="Non-comparative mode · 5 validators"
+        />
+      )}
+
+      {scenario.id === "ai-agent" && (
+        <ChainVerdict
+          question={scenario.question}
+          apiEndpoint="/api/genlayer/dispute"
+          contractAddress={process.env.NEXT_PUBLIC_DISPUTE_COURT_ADDRESS ?? ""}
+          mode="non_comparative"
+          criteria={
+            "Evaluate whether ALL provided citations meet the SLA 'peer-reviewed academic sources only'. For each citation, judge the publication venue: peer-reviewed journal or conference proceedings count; arXiv preprints only count if there is verifiable evidence they underwent peer review; blogs, Medium posts, and podcasts do not meet the standard. If any citation fails the peer-reviewed test, answer no. Answer yes or no only."
+          }
+          modeLabel="Non-comparative mode · 5 validators"
+        />
+      )}
+
       <Simulator lockedScenarioId={id} defaultContractOpen={true} />
 
       <CaseContract scenario={scenario} />
