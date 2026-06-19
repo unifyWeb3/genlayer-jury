@@ -771,7 +771,11 @@ export function Simulator({
         }}
       >
         <div className="flex justify-between items-center">
-          <span className="overline">Question on Trial</span>
+          {scenario.id === "custom" ? (
+            <span className="overline overline-accent">Your Dispute</span>
+          ) : (
+            <span className="overline">Question on Trial</span>
+          )}
           <span className="overline overline-faint">{charCount} / 500</span>
         </div>
         {scenario.id === "custom" ? (
@@ -886,31 +890,45 @@ export function Simulator({
             <span className="overline overline-faint">DisputeCourt · Studionet</span>
           </div>
 
-          {/* Criteria input */}
-          <div className="px-8 py-6 border-b" style={{ borderColor: "var(--color-rule)" }}>
-            <span className="overline block mb-3">Resolution criteria · optional</span>
-            <textarea
-              value={customCriteria}
-              onChange={(e) => setCustomCriteria(e.target.value.slice(0, 300))}
-              placeholder="Leave blank for a default judgment standard. Or specify: e.g. 'Evaluate whether the service was delivered as described, without considering subjective satisfaction.'"
-              rows={2}
-              disabled={chainPhase === "submitting" || chainPhase === "waiting"}
-              className="w-full bg-transparent border resize-none focus:outline-none"
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-                lineHeight: 1.6,
-                color: "var(--color-ink-muted)",
-                borderColor: "var(--color-rule)",
-                padding: "8px 12px",
-              }}
-            />
-            <p
-              className="m-0 mt-3 font-[family-name:var(--font-mono)]"
-              style={{ fontSize: 10, color: "var(--color-ink-faint)", letterSpacing: "0.05em" }}
-            >
-              Runs your dispute on the real DisputeCourt contract on studionet. Consensus takes 20–90 s. You get a verifiable tx hash.
-            </p>
+          {/* Question echo — connects this panel to the primary textarea above */}
+          <div
+            className="px-8 py-5 border-b"
+            style={{ borderColor: "var(--color-rule)", background: "#080808" }}
+          >
+            {customQuestion.trim().length >= 10 ? (
+              <>
+                <span
+                  className="overline block mb-2"
+                  style={{ color: "var(--color-ink-faint)" }}
+                >
+                  Question to run
+                </span>
+                <p
+                  className="m-0 italic"
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 15,
+                    lineHeight: 1.5,
+                    color: "var(--color-ink-muted)",
+                  }}
+                >
+                  &ldquo;
+                  {customQuestion.trim().length > 120
+                    ? customQuestion.trim().slice(0, 120) + "…"
+                    : customQuestion.trim()}
+                  &rdquo;
+                </p>
+              </>
+            ) : (
+              <p
+                className="m-0 font-[family-name:var(--font-mono)]"
+                style={{ fontSize: 12, color: "var(--color-ink-faint)" }}
+              >
+                ↑ Type your dispute in the{" "}
+                <span style={{ color: "var(--color-ink-muted)" }}>Your Dispute</span>{" "}
+                box above to run it on-chain.
+              </p>
+            )}
           </div>
 
           {/* Run button */}
@@ -937,9 +955,11 @@ export function Simulator({
             {customQuestion.trim().length < 10 && chainPhase === "idle" && (
               <span
                 className="font-[family-name:var(--font-mono)]"
-                style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
+                style={{ fontSize: 11, color: "var(--color-ink-muted)" }}
               >
-                Write your question above first.
+                Enter your dispute in the{" "}
+                <span style={{ color: "var(--color-accent)" }}>Your Dispute</span>{" "}
+                box above — not the criteria field below.
               </span>
             )}
           </div>
@@ -1057,6 +1077,41 @@ export function Simulator({
               )}
             </div>
           )}
+
+          {/* Criteria — secondary, below the run button and results */}
+          <div
+            className="px-8 py-5 border-t"
+            style={{ borderColor: "var(--color-rule)", background: "var(--color-surface)" }}
+          >
+            <span
+              className="overline block mb-3"
+              style={{ color: "var(--color-ink-faint)" }}
+            >
+              Resolution criteria · optional
+            </span>
+            <textarea
+              value={customCriteria}
+              onChange={(e) => setCustomCriteria(e.target.value.slice(0, 300))}
+              placeholder="Leave blank to apply a default fairness standard. Or specify how validators should judge — e.g. 'Evaluate whether the service was delivered as described, ignoring subjective satisfaction.'"
+              rows={2}
+              disabled={chainPhase === "submitting" || chainPhase === "waiting"}
+              className="w-full bg-transparent border resize-none focus:outline-none"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                lineHeight: 1.6,
+                color: "var(--color-ink-muted)",
+                borderColor: "var(--color-rule)",
+                padding: "8px 12px",
+              }}
+            />
+            <p
+              className="m-0 mt-2 font-[family-name:var(--font-mono)]"
+              style={{ fontSize: 10, color: "var(--color-ink-faint)", letterSpacing: "0.05em" }}
+            >
+              Runs on the real DisputeCourt contract · studionet · consensus 20–90 s · verifiable tx hash
+            </p>
+          </div>
         </div>
       )}
     </section>
