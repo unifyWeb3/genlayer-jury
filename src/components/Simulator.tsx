@@ -8,6 +8,27 @@ import { useMode } from "@/lib/ModeContext";
 
 const MODES: Mode[] = ["Strict", "Comparative", "Non-comparative"];
 
+// Maps the UI Mode labels to the API's snake_case strings
+const MODE_TO_API: Record<Mode, string> = {
+  Strict: "strict",
+  Comparative: "comparative",
+  "Non-comparative": "non_comparative",
+};
+
+const DEFAULT_CRITERIA =
+  "Judge the dispute fairly based on the facts presented in the question. " +
+  "Determine UPHELD if the claim or position is justified by the stated facts, DISMISSED if it is not. " +
+  "Base the decision on reasonable interpretation of the stated facts without assuming information not provided.";
+
+type ChainPhase = "idle" | "submitting" | "waiting" | "resolved" | "no_consensus" | "error";
+
+type ChainSseEvent =
+  | { type: "submitted"; txHash: string }
+  | { type: "verdict"; verdict: string; reasoning: string }
+  | { type: "no_consensus"; txHash: string; message: string }
+  | { type: "error"; message: string }
+  | { type: "done" };
+
 const accentByStatus: Record<LiveJuror["status"], string> = {
   idle: "var(--color-rule-strong)",
   yes: "var(--color-verdict-yes)",
@@ -494,6 +515,104 @@ export function Simulator({
 
   const charCount = scenario.id === "custom" ? customQuestion.length : scenario.question.length;
 
+  // ── On-chain custom dispute state ──────────────────────────────────────────
+  const [chainPhase, setChainPhase] = useState<ChainPhase>("idle");
+  const [chainTxHash, setChainTxHash] = useState("");
+  const [chainVerdict, setChainVerdict] = useState("");
+  const [chainReasoning, setChainReasoning] = useState("");
+  const [chainMsg, setChainMsg] = useState("");
+  const [customCriteria, setCustomCriteria] = useState("");
+
+  useEffect(() => {
+    setChainPhase("idle");
+    setChainTxHash("");
+    setChainVerdict("");
+    setChainReasoning("");
+    setChainMsg("");
+    setCustomCriteria("");
+  }, [scenarioId]);
+
+  async function runOnChain() {
+    if (customQuestion.trim().length < 10) return;
+    const courtAddress = process.env.NEXT_PUBLIC_DISPUTE_COURT_ADDRESS ?? "";
+    if (!courtAddress) {
+      setChainPhase("error");
+      setChainMsg("NEXT_PUBLIC_DISPUTE_COURT_ADDRESS is not configured.");
+      return;
+    }
+    const disputeId = `custom-${Date.now()}`;
+    const criteria = customCriteria.trim() || DEFAULT_CRITERIA;
+    const apiMode = MODE_TO_API[mode];
+
+    setChainPhase("submitting");
+    setChainTxHash("");
+    setChainVerdict("");
+    setChainReasoning("");
+    setChainMsg("");
+
+    let res: Response;
+    try {
+      res = await fetch("/api/genlayer/dispute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disputeId, question: customQuestion, mode: apiMode, criteria }),
+      });
+    } catch {
+      setChainPhase("error");
+      setChainMsg("Could not reach the server.");
+      return;
+    }
+    if (!res.ok || !res.body) {
+      setChainPhase("error");
+      setChainMsg(`Server error ${res.status}.`);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    let localPhase: ChainPhase = "submitting";
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          let ev: ChainSseEvent;
+          try { ev = JSON.parse(line.slice(6)) as ChainSseEvent; } catch { continue; }
+          if (ev.type === "submitted") {
+            setChainTxHash(ev.txHash);
+            setChainPhase("waiting");
+            localPhase = "waiting";
+          } else if (ev.type === "verdict") {
+            setChainVerdict(ev.verdict);
+            setChainReasoning(ev.reasoning);
+            setChainPhase("resolved");
+            localPhase = "resolved";
+          } else if (ev.type === "no_consensus") {
+            setChainTxHash(ev.txHash);
+            setChainMsg(ev.message);
+            setChainPhase("no_consensus");
+            localPhase = "no_consensus";
+          } else if (ev.type === "error") {
+            setChainMsg(ev.message);
+            setChainPhase("error");
+            localPhase = "error";
+          }
+        }
+      }
+    } catch {
+      if (localPhase !== "resolved" && localPhase !== "no_consensus") {
+        setChainPhase("error");
+        setChainMsg("Connection lost.");
+      }
+    }
+  }
+
   return (
     <section
       id="simulator"
@@ -750,6 +869,195 @@ export function Simulator({
           open={contractOpen}
           onToggle={() => setContractOpen((o) => !o)}
         />
+      )}
+
+      {/* ON-CHAIN PANEL — custom case only, always visible so user sees the option */}
+      {scenario.id === "custom" && (
+        <div
+          className="mt-12 border"
+          style={{ borderColor: "var(--color-rule-strong)" }}
+        >
+          {/* Header */}
+          <div
+            className="flex justify-between items-center px-8 py-5 border-b"
+            style={{ borderColor: "var(--color-rule)", background: "var(--color-surface)" }}
+          >
+            <span className="overline overline-accent">Run on GenLayer</span>
+            <span className="overline overline-faint">DisputeCourt · Studionet</span>
+          </div>
+
+          {/* Criteria input */}
+          <div className="px-8 py-6 border-b" style={{ borderColor: "var(--color-rule)" }}>
+            <span className="overline block mb-3">Resolution criteria · optional</span>
+            <textarea
+              value={customCriteria}
+              onChange={(e) => setCustomCriteria(e.target.value.slice(0, 300))}
+              placeholder="Leave blank for a default judgment standard. Or specify: e.g. 'Evaluate whether the service was delivered as described, without considering subjective satisfaction.'"
+              rows={2}
+              disabled={chainPhase === "submitting" || chainPhase === "waiting"}
+              className="w-full bg-transparent border resize-none focus:outline-none"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                lineHeight: 1.6,
+                color: "var(--color-ink-muted)",
+                borderColor: "var(--color-rule)",
+                padding: "8px 12px",
+              }}
+            />
+            <p
+              className="m-0 mt-3 font-[family-name:var(--font-mono)]"
+              style={{ fontSize: 10, color: "var(--color-ink-faint)", letterSpacing: "0.05em" }}
+            >
+              Runs your dispute on the real DisputeCourt contract on studionet. Consensus takes 20–90 s. You get a verifiable tx hash.
+            </p>
+          </div>
+
+          {/* Run button */}
+          <div
+            className="px-8 py-5 flex items-center gap-4 flex-wrap border-b"
+            style={{ borderColor: "var(--color-rule)" }}
+          >
+            <button
+              onClick={runOnChain}
+              disabled={
+                chainPhase === "submitting" ||
+                chainPhase === "waiting" ||
+                customQuestion.trim().length < 10
+              }
+              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {chainPhase === "idle" && "Run on GenLayer →"}
+              {chainPhase === "submitting" && "Submitting tx…"}
+              {chainPhase === "waiting" && "Awaiting consensus…"}
+              {(chainPhase === "resolved" ||
+                chainPhase === "no_consensus" ||
+                chainPhase === "error") && "Run again →"}
+            </button>
+            {customQuestion.trim().length < 10 && chainPhase === "idle" && (
+              <span
+                className="font-[family-name:var(--font-mono)]"
+                style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
+              >
+                Write your question above first.
+              </span>
+            )}
+          </div>
+
+          {/* TX hash row */}
+          {chainTxHash && (
+            <div
+              className="px-8 py-4 flex items-center gap-4 flex-wrap border-b"
+              style={{ borderColor: "var(--color-rule)", background: "#080808" }}
+            >
+              <span
+                className="font-[family-name:var(--font-mono)] uppercase"
+                style={{ fontSize: 9, letterSpacing: "0.2em", color: "var(--color-ink-faint)" }}
+              >
+                TX
+              </span>
+              <span
+                className="font-[family-name:var(--font-mono)]"
+                style={{ fontSize: 12, color: "var(--color-ink-muted)" }}
+              >
+                {chainTxHash}
+              </span>
+              {chainPhase === "waiting" && (
+                <span
+                  className="font-[family-name:var(--font-mono)] pulse-tribunal ml-auto"
+                  style={{ fontSize: 11, color: "var(--color-accent)" }}
+                >
+                  Waiting for consensus…
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Verdict */}
+          {chainPhase === "resolved" && (
+            <div className="px-8 py-8">
+              <div className="flex items-baseline gap-6 mb-4 flex-wrap">
+                <span
+                  className="font-[family-name:var(--font-mono)] uppercase"
+                  style={{
+                    fontSize: 18,
+                    letterSpacing: "0.12em",
+                    fontWeight: 600,
+                    color:
+                      chainVerdict === "UPHELD"
+                        ? "var(--color-verdict-yes)"
+                        : "var(--color-verdict-no)",
+                  }}
+                >
+                  {chainVerdict}
+                </span>
+                <span
+                  className="font-[family-name:var(--font-mono)]"
+                  style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
+                >
+                  Equivalence Principle · {MODE_TO_API[mode].replace("_", "-")} mode · 5 validators
+                </span>
+              </div>
+              <p
+                className="m-0"
+                style={{ fontSize: 14, lineHeight: 1.65, color: "var(--color-ink-muted)" }}
+              >
+                {chainReasoning}
+              </p>
+            </div>
+          )}
+
+          {/* No consensus — valid outcome, framed educationally */}
+          {chainPhase === "no_consensus" && (
+            <div className="px-8 py-8">
+              <div className="flex items-baseline gap-6 mb-4 flex-wrap">
+                <span
+                  className="font-[family-name:var(--font-mono)] uppercase"
+                  style={{
+                    fontSize: 18,
+                    letterSpacing: "0.12em",
+                    fontWeight: 600,
+                    color: "var(--color-verdict-und)",
+                  }}
+                >
+                  No Consensus
+                </span>
+                <span
+                  className="font-[family-name:var(--font-mono)]"
+                  style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
+                >
+                  Equivalence Principle · appeal available
+                </span>
+              </div>
+              <p
+                className="m-0"
+                style={{ fontSize: 14, lineHeight: 1.65, color: "var(--color-ink-muted)" }}
+              >
+                {chainMsg}
+              </p>
+            </div>
+          )}
+
+          {/* Error */}
+          {chainPhase === "error" && (
+            <div className="px-8 py-6">
+              <span
+                className="font-[family-name:var(--font-mono)]"
+                style={{ fontSize: 12, color: "var(--color-verdict-no)" }}
+              >
+                {chainMsg}
+              </span>
+              {chainTxHash && (
+                <p
+                  className="m-0 mt-2 font-[family-name:var(--font-mono)]"
+                  style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
+                >
+                  Tx submitted: {chainTxHash} — check Studionet for status.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </section>
   );
