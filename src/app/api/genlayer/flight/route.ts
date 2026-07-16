@@ -201,8 +201,9 @@ export async function POST(request: Request): Promise<Response> {
 
       request.signal.addEventListener('abort', finish, { once: true });
 
+      let txHash = '';
       try {
-        const txHash = (await client.writeContract({
+        txHash = (await client.writeContract({
           address: contractAddress,
           functionName: 'resolve_dispute',
           args: [disputeId, FLIGHT_QUESTION],
