@@ -1414,12 +1414,15 @@ export function Simulator({
 
           {/* Panel footer */}
           <div
-            className="px-8 py-4 border-t"
+            className="px-8 py-4 border-t flex justify-between items-baseline gap-4 flex-wrap"
             style={{
               borderColor: "var(--color-rule)",
               background: "var(--color-surface)",
             }}
           >
+            <span className="overline overline-faint">
+              Powered by GenLayer Intelligent Contracts
+            </span>
             <p
               className="m-0 font-[family-name:var(--font-mono)]"
               style={{
@@ -1428,9 +1431,8 @@ export function Simulator({
                 letterSpacing: "0.05em",
               }}
             >
-              Runs on DisputeCourt v2 · testnet-bradbury · validators fetch
-              your evidence and reach consensus on-chain · 30–120 s ·
-              verifiable tx hash
+              Evidence retrieved independently by validators · Consensus
+              reached on-chain · Verifiable on Bradbury Explorer
             </p>
           </div>
         </div>
