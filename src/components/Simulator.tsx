@@ -5,6 +5,7 @@ import { SCENARIOS, type Mode, type Scenario } from "@/lib/scenarios";
 import { useJury, type LiveJuror } from "@/lib/useJury";
 import { useJuryContext } from "@/lib/JuryContext";
 import { useMode } from "@/lib/ModeContext";
+import { DossierBlock, type V2DossierRecord } from "@/components/DossierBlock";
 
 const MODES: Mode[] = ["Strict", "Comparative", "Non-comparative"];
 
@@ -32,9 +33,11 @@ function truncateHex(hex: string) {
 }
 
 const DEFAULT_CRITERIA =
-  "Judge the dispute fairly based on the facts presented in the question. " +
-  "Determine UPHELD if the claim or position is justified by the stated facts, DISMISSED if it is not. " +
-  "Base the decision on reasonable interpretation of the stated facts without assuming information not provided.";
+  "Judge the claim fairly against the retrieved evidence. " +
+  "Determine UPHELD if the claim is supported by the evidence, DISMISSED if it is not. " +
+  "Base the decision on the evidence content only, without assuming information not provided.";
+
+const MAX_EVIDENCE_URLS = 3;
 
 type ChainPhase =
   | "idle"
@@ -46,7 +49,7 @@ type ChainPhase =
 
 type ChainSseEvent =
   | { type: "submitted"; txHash: string }
-  | { type: "verdict"; verdict: string; reasoning: string }
+  | { type: "dossier"; txHash: string; record: V2DossierRecord }
   | { type: "no_consensus"; txHash: string; message: string }
   | { type: "error"; message: string }
   | { type: "done" };
@@ -564,7 +567,8 @@ export function Simulator({
     setCustomQuestion("");
   }, [scenarioId]);
 
-  const courtAddress = process.env.NEXT_PUBLIC_DISPUTE_COURT_ADDRESS ?? "";
+  // Custom disputes run on DisputeCourt v2 (evidence-first).
+  const courtAddress = process.env.NEXT_PUBLIC_DISPUTE_COURT_V2_ADDRESS ?? "";
   const courtExplorerUrl = courtAddress
     ? explorerAddressUrl(courtAddress)
     : EXPLORER_BASE;
@@ -585,29 +589,50 @@ export function Simulator({
   const charCount =
     scenario.id === "custom" ? customQuestion.length : scenario.question.length;
 
-  // ── On-chain custom dispute state ──────────────────────────────────────────
+  // ── On-chain custom dispute state (DisputeCourt v2, evidence-first) ───────
   const [chainPhase, setChainPhase] = useState<ChainPhase>("idle");
   const [chainTxHash, setChainTxHash] = useState("");
-  const [chainVerdict, setChainVerdict] = useState("");
-  const [chainReasoning, setChainReasoning] = useState("");
+  const [chainDossier, setChainDossier] = useState<V2DossierRecord | null>(
+    null,
+  );
   const [chainMsg, setChainMsg] = useState("");
   const [customCriteria, setCustomCriteria] = useState("");
+  const [customRemedy, setCustomRemedy] = useState("");
+  const [evidenceUrls, setEvidenceUrls] = useState<string[]>(["", "", ""]);
 
   useEffect(() => {
     setChainPhase("idle");
     setChainTxHash("");
-    setChainVerdict("");
-    setChainReasoning("");
+    setChainDossier(null);
     setChainMsg("");
     setCustomCriteria("");
+    setCustomRemedy("");
+    setEvidenceUrls(["", "", ""]);
   }, [scenarioId]);
 
+  // Client-side evidence hygiene — mirrors the contract's own rules so users
+  // don't burn a tx on input the contract will reject: https only, trimmed,
+  // deduped, 1–3 sources.
+  const trimmedEvidence = evidenceUrls.map((u) => u.trim());
+  const hasInvalidEvidence = trimmedEvidence.some(
+    (u) => u !== "" && !u.startsWith("https://"),
+  );
+  const validEvidenceUrls = Array.from(
+    new Set(trimmedEvidence.filter((u) => u.startsWith("https://"))),
+  ).slice(0, MAX_EVIDENCE_URLS);
+  const claimReady = customQuestion.trim().length >= 10;
+  const canRunOnChain =
+    claimReady && validEvidenceUrls.length >= 1 && !hasInvalidEvidence;
+
+  function setEvidenceUrl(index: number, value: string) {
+    setEvidenceUrls((prev) => prev.map((u, i) => (i === index ? value : u)));
+  }
+
   async function runOnChain() {
-    if (customQuestion.trim().length < 10) return;
-    const courtAddress = process.env.NEXT_PUBLIC_DISPUTE_COURT_ADDRESS ?? "";
+    if (!canRunOnChain) return;
     if (!courtAddress) {
       setChainPhase("error");
-      setChainMsg("NEXT_PUBLIC_DISPUTE_COURT_ADDRESS is not configured.");
+      setChainMsg("NEXT_PUBLIC_DISPUTE_COURT_V2_ADDRESS is not configured.");
       return;
     }
     const disputeId = `custom-${Date.now()}`;
@@ -616,20 +641,21 @@ export function Simulator({
 
     setChainPhase("submitting");
     setChainTxHash("");
-    setChainVerdict("");
-    setChainReasoning("");
+    setChainDossier(null);
     setChainMsg("");
 
     let res: Response;
     try {
-      res = await fetch("/api/genlayer/dispute", {
+      res = await fetch("/api/genlayer/dispute-v2", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           disputeId,
-          question: customQuestion,
-          mode: apiMode,
+          claim: customQuestion.trim(),
           criteria,
+          requestedRemedy: customRemedy.trim(),
+          evidenceUrls: validEvidenceUrls,
+          mode: apiMode,
         }),
       });
     } catch {
@@ -667,9 +693,9 @@ export function Simulator({
             setChainTxHash(ev.txHash);
             setChainPhase("waiting");
             localPhase = "waiting";
-          } else if (ev.type === "verdict") {
-            setChainVerdict(ev.verdict);
-            setChainReasoning(ev.reasoning);
+          } else if (ev.type === "dossier") {
+            setChainTxHash(ev.txHash);
+            setChainDossier(ev.record);
             setChainPhase("resolved");
             localPhase = "resolved";
           } else if (ev.type === "no_consensus") {
@@ -709,8 +735,9 @@ export function Simulator({
         The jury <em>convenes.</em>
       </h2>
       <p className="body-prose mt-8 max-w-[680px]">
-        Pose a question. Pick a mode. Watch five validators deliberate. See the
-        Equivalence Principle deliver a verdict. Disagreement triggers appeal.
+        Pose a question. Pick a mode. Preview how five model jurors might
+        reason — then send the case to GenLayer, where the official verdict is
+        decided on-chain.
       </p>
 
       {/* SCENARIO PICKER — hidden when locked */}
@@ -865,7 +892,7 @@ export function Simulator({
       >
         <div className="flex justify-between items-center">
           {scenario.id === "custom" ? (
-            <span className="overline overline-accent">Your Dispute</span>
+            <span className="overline overline-accent">Your Claim</span>
           ) : (
             <span className="overline">Question on Trial</span>
           )}
@@ -875,7 +902,7 @@ export function Simulator({
           <textarea
             value={customQuestion}
             onChange={(e) => setCustomQuestion(e.target.value.slice(0, 500))}
-            placeholder="Type a subjective dispute. Example: Did the contractor fulfill a verbal agreement to 'paint the room professionally' if they finished in 2 hours but left visible streaks?"
+            placeholder="State the claim to be judged. Example: The contractor fulfilled the verbal agreement to 'paint the room professionally' — despite finishing in 2 hours and leaving visible streaks."
             disabled={phase === "deliberating"}
             rows={3}
             className="w-full bg-transparent border-0 resize-none focus:outline-none italic"
@@ -908,11 +935,11 @@ export function Simulator({
               phase === "deliberating" ||
               (scenario.id === "custom" && customQuestion.trim().length < 10)
             }
-            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-ghost disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {phase === "idle" && "Convene the jury →"}
-            {phase === "deliberating" && "Deliberating..."}
-            {phase === "resolved" && "Re-convene →"}
+            {phase === "idle" && "Run Reasoning Preview →"}
+            {phase === "deliberating" && "Previewing..."}
+            {phase === "resolved" && "Re-run preview →"}
           </button>
           {phase !== "idle" && (
             <button
@@ -933,10 +960,39 @@ export function Simulator({
                 className="mono-sm"
                 style={{ color: "var(--color-ink-faint)" }}
               >
-                Write at least 10 characters to summon the jury.
+                Write at least 10 characters to run the preview.
               </span>
             )}
         </div>
+      </div>
+
+      {/* REASONING PREVIEW — educational analysis, never the official verdict */}
+      <div
+        className="mt-10 border px-6 py-4"
+        style={{
+          borderColor: "var(--color-rule-strong)",
+          background: "var(--color-surface)",
+        }}
+      >
+        <div className="flex justify-between items-baseline flex-wrap gap-2">
+          <span className="overline overline-accent">Reasoning Preview</span>
+          <span className="overline overline-faint">
+            Educational analysis · Not authoritative
+          </span>
+        </div>
+        <p
+          className="m-0 mt-3 font-[family-name:var(--font-mono)]"
+          style={{
+            fontSize: 11,
+            lineHeight: 1.6,
+            letterSpacing: "0.04em",
+            color: "var(--color-ink-faint)",
+          }}
+        >
+          This preview is generated locally for educational purposes. The
+          official verdict is produced by GenLayer Intelligent Contracts
+          on-chain.
+        </p>
       </div>
 
       {/* JURY GRID */}
@@ -951,16 +1007,17 @@ export function Simulator({
         onAppeal={appeal}
       />
 
-      {/* SANDBOX FOOTNOTE — custom cases only */}
+      {/* PREVIEW FOOTNOTE — custom cases only */}
       {scenario.id === "custom" && phase === "resolved" && (
         <p
           className="mono-sm mt-4 text-center"
           style={{ color: "var(--color-ink-faint)" }}
         >
-          Sandbox mode — no contract reference, no author-recommended pattern.{" "}
+          Reasoning Preview — local educational analysis only.{" "}
           {juryMode === "mocked"
-            ? "Toggle to live mode for real LLM deliberation."
-            : "Live LLM deliberation."}
+            ? "Toggle to live mode for real LLM reasoning. "
+            : "Live LLM reasoning. "}
+          The official verdict is decided on GenLayer below.
         </p>
       )}
 
@@ -987,10 +1044,12 @@ export function Simulator({
               background: "var(--color-surface)",
             }}
           >
-            <span className="overline overline-accent">Run on GenLayer</span>
+            <span className="overline overline-accent">
+              Official GenLayer Verdict
+            </span>
             <div className="flex flex-col items-end max-lg:items-start gap-1">
               <span className="overline overline-faint">
-                DisputeCourt · Bradbury
+                DisputeCourt v2 · Bradbury
               </span>
               <a
                 href={courtExplorerUrl}
@@ -1009,18 +1068,18 @@ export function Simulator({
             </div>
           </div>
 
-          {/* Question echo — connects this panel to the primary textarea above */}
+          {/* Claim echo — connects this panel to the primary textarea above */}
           <div
             className="px-8 py-5 border-b"
             style={{ borderColor: "var(--color-rule)", background: "#080808" }}
           >
-            {customQuestion.trim().length >= 10 ? (
+            {claimReady ? (
               <>
                 <span
                   className="overline block mb-2"
                   style={{ color: "var(--color-ink-faint)" }}
                 >
-                  Question to run
+                  Claim on trial
                 </span>
                 <p
                   className="m-0 italic"
@@ -1043,16 +1102,162 @@ export function Simulator({
                 className="m-0 font-[family-name:var(--font-mono)]"
                 style={{ fontSize: 12, color: "var(--color-ink-faint)" }}
               >
-                ↑ Type your dispute in the{" "}
+                ↑ State your claim in the{" "}
                 <span style={{ color: "var(--color-ink-muted)" }}>
-                  Your Dispute
+                  Your Claim
                 </span>{" "}
                 box above to run it on-chain.
               </p>
             )}
           </div>
 
-          {/* Run button */}
+          {/* Criteria — how validators should judge (optional) */}
+          <div
+            className="px-8 py-5 border-b"
+            style={{
+              borderColor: "var(--color-rule)",
+              background: "var(--color-surface)",
+            }}
+          >
+            <span
+              className="overline block mb-3"
+              style={{ color: "var(--color-ink-faint)" }}
+            >
+              Criteria · optional — how validators should judge
+            </span>
+            <textarea
+              value={customCriteria}
+              onChange={(e) => setCustomCriteria(e.target.value.slice(0, 300))}
+              placeholder="Leave blank to apply a default fairness standard. Or specify how validators should judge — e.g. 'Evaluate whether the service was delivered as described, ignoring subjective satisfaction.'"
+              rows={2}
+              disabled={chainPhase === "submitting" || chainPhase === "waiting"}
+              className="w-full bg-transparent border resize-none focus:outline-none"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                lineHeight: 1.6,
+                color: "var(--color-ink-muted)",
+                borderColor: "var(--color-rule)",
+                padding: "8px 12px",
+              }}
+            />
+          </div>
+
+          {/* Requested remedy (optional) */}
+          <div
+            className="px-8 py-5 border-b"
+            style={{
+              borderColor: "var(--color-rule)",
+              background: "var(--color-surface)",
+            }}
+          >
+            <span
+              className="overline block mb-3"
+              style={{ color: "var(--color-ink-faint)" }}
+            >
+              Requested remedy · optional
+            </span>
+            <input
+              type="text"
+              value={customRemedy}
+              onChange={(e) => setCustomRemedy(e.target.value.slice(0, 200))}
+              placeholder="e.g. Refund the escrow to the freelancer."
+              disabled={chainPhase === "submitting" || chainPhase === "waiting"}
+              className="w-full bg-transparent border focus:outline-none"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                lineHeight: 1.6,
+                color: "var(--color-ink-muted)",
+                borderColor: "var(--color-rule)",
+                padding: "8px 12px",
+              }}
+            />
+            <p
+              className="m-0 mt-2 font-[family-name:var(--font-mono)]"
+              style={{
+                fontSize: 10,
+                color: "var(--color-ink-faint)",
+                letterSpacing: "0.05em",
+              }}
+            >
+              Validators also judge whether this remedy follows from their
+              verdict.
+            </p>
+          </div>
+
+          {/* Evidence URLs — the heart of the evidence-first flow */}
+          <div
+            className="px-8 py-5 border-b"
+            style={{
+              borderColor: "var(--color-rule)",
+              background: "var(--color-surface)",
+            }}
+          >
+            <span
+              className="overline block mb-1"
+              style={{ color: "var(--color-accent)" }}
+            >
+              Evidence · 1–3 https sources · required
+            </span>
+            <p
+              className="m-0 mb-3 font-[family-name:var(--font-mono)]"
+              style={{
+                fontSize: 11,
+                color: "var(--color-ink-faint)",
+                letterSpacing: "0.04em",
+              }}
+            >
+              Validators will fetch and read these sources themselves.
+            </p>
+            <div className="flex flex-col gap-2">
+              {evidenceUrls.map((url, i) => {
+                const trimmed = url.trim();
+                const invalid = trimmed !== "" && !trimmed.startsWith("https://");
+                return (
+                  <div key={i} className="flex flex-col gap-1">
+                    <input
+                      type="url"
+                      value={url}
+                      onChange={(e) => setEvidenceUrl(i, e.target.value)}
+                      placeholder={
+                        i === 0
+                          ? "https:// — a page validators should read"
+                          : "https:// — optional additional source"
+                      }
+                      disabled={
+                        chainPhase === "submitting" || chainPhase === "waiting"
+                      }
+                      className="w-full bg-transparent border focus:outline-none"
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 12,
+                        lineHeight: 1.6,
+                        color: "var(--color-ink-muted)",
+                        borderColor: invalid
+                          ? "var(--color-verdict-no)"
+                          : "var(--color-rule)",
+                        padding: "8px 12px",
+                      }}
+                    />
+                    {invalid && (
+                      <span
+                        className="font-[family-name:var(--font-mono)]"
+                        style={{
+                          fontSize: 10,
+                          color: "var(--color-verdict-no)",
+                        }}
+                      >
+                        Evidence links must start with https://
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Run button — the primary CTA */}
           <div
             className="px-8 py-5 flex items-center gap-4 flex-wrap border-b"
             style={{ borderColor: "var(--color-rule)" }}
@@ -1062,7 +1267,7 @@ export function Simulator({
               disabled={
                 chainPhase === "submitting" ||
                 chainPhase === "waiting" ||
-                customQuestion.trim().length < 10
+                !canRunOnChain
               }
               className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -1074,16 +1279,16 @@ export function Simulator({
                 chainPhase === "error") &&
                 "Run again →"}
             </button>
-            {customQuestion.trim().length < 10 && chainPhase === "idle" && (
+            {!canRunOnChain && chainPhase === "idle" && (
               <span
                 className="font-[family-name:var(--font-mono)]"
                 style={{ fontSize: 11, color: "var(--color-ink-muted)" }}
               >
-                Enter your dispute in the{" "}
-                <span style={{ color: "var(--color-accent)" }}>
-                  Your Dispute
-                </span>{" "}
-                box above — not the criteria field below.
+                {!claimReady
+                  ? "State your claim above (at least 10 characters)."
+                  : hasInvalidEvidence
+                    ? "Fix the highlighted evidence link — https:// only."
+                    : "Add at least one https:// evidence link."}
               </span>
             )}
           </div>
@@ -1147,43 +1352,9 @@ export function Simulator({
             </div>
           )}
 
-          {/* Verdict */}
-          {chainPhase === "resolved" && (
-            <div className="px-8 py-8">
-              <div className="flex items-baseline gap-6 mb-4 flex-wrap">
-                <span
-                  className="font-[family-name:var(--font-mono)] uppercase"
-                  style={{
-                    fontSize: 18,
-                    letterSpacing: "0.12em",
-                    fontWeight: 600,
-                    color:
-                      chainVerdict === "UPHELD"
-                        ? "var(--color-verdict-yes)"
-                        : "var(--color-verdict-no)",
-                  }}
-                >
-                  {chainVerdict}
-                </span>
-                <span
-                  className="font-[family-name:var(--font-mono)]"
-                  style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
-                >
-                  Equivalence Principle · {MODE_TO_API[mode].replace("_", "-")}{" "}
-                  mode · 5 validators
-                </span>
-              </div>
-              <p
-                className="m-0"
-                style={{
-                  fontSize: 14,
-                  lineHeight: 1.65,
-                  color: "var(--color-ink-muted)",
-                }}
-              >
-                {chainReasoning}
-              </p>
-            </div>
+          {/* Final Case Dossier — the full on-chain record */}
+          {chainPhase === "resolved" && chainDossier && (
+            <DossierBlock record={chainDossier} txHash={chainTxHash} />
           )}
 
           {/* No consensus — valid outcome, framed educationally */}
@@ -1199,13 +1370,13 @@ export function Simulator({
                     color: "var(--color-verdict-und)",
                   }}
                 >
-                  No Consensus
+                  The Jury Is Split
                 </span>
                 <span
                   className="font-[family-name:var(--font-mono)]"
                   style={{ fontSize: 11, color: "var(--color-ink-faint)" }}
                 >
-                  Equivalence Principle · appeal available
+                  Equivalence Principle · a valid outcome, not an error
                 </span>
               </div>
               <p
@@ -1241,46 +1412,25 @@ export function Simulator({
             </div>
           )}
 
-          {/* Criteria — secondary, below the run button and results */}
+          {/* Panel footer */}
           <div
-            className="px-8 py-5 border-t"
+            className="px-8 py-4 border-t"
             style={{
               borderColor: "var(--color-rule)",
               background: "var(--color-surface)",
             }}
           >
-            <span
-              className="overline block mb-3"
-              style={{ color: "var(--color-ink-faint)" }}
-            >
-              Resolution criteria · optional
-            </span>
-            <textarea
-              value={customCriteria}
-              onChange={(e) => setCustomCriteria(e.target.value.slice(0, 300))}
-              placeholder="Leave blank to apply a default fairness standard. Or specify how validators should judge — e.g. 'Evaluate whether the service was delivered as described, ignoring subjective satisfaction.'"
-              rows={2}
-              disabled={chainPhase === "submitting" || chainPhase === "waiting"}
-              className="w-full bg-transparent border resize-none focus:outline-none"
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-                lineHeight: 1.6,
-                color: "var(--color-ink-muted)",
-                borderColor: "var(--color-rule)",
-                padding: "8px 12px",
-              }}
-            />
             <p
-              className="m-0 mt-2 font-[family-name:var(--font-mono)]"
+              className="m-0 font-[family-name:var(--font-mono)]"
               style={{
                 fontSize: 10,
                 color: "var(--color-ink-faint)",
                 letterSpacing: "0.05em",
               }}
             >
-              Runs on the real DisputeCourt contract · testnet-bradbury · consensus
-              20–90 s · verifiable tx hash
+              Runs on DisputeCourt v2 · testnet-bradbury · validators fetch
+              your evidence and reach consensus on-chain · 30–120 s ·
+              verifiable tx hash
             </p>
           </div>
         </div>

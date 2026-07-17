@@ -161,9 +161,11 @@ export function ChainVerdict({
     >
       <div className="flex justify-between items-baseline mb-8 max-lg:flex-col max-lg:gap-3">
         <span className="overline overline-accent">
-          Live On-Chain Execution
+          Official GenLayer Verdict
         </span>
-        <span className="overline overline-faint">Deployed · Bradbury</span>
+        <span className="overline overline-faint">
+          Live on-chain · Deployed · Bradbury
+        </span>
       </div>
 
       <div
