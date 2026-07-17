@@ -9,6 +9,17 @@
 **Deployed contracts:**
 - DisputeCourt (generic adjudication): `0x33f62147011B75cDF2333682C9dB2A1F6e7bF908`
 - FlightDelayDispute (strict-mode reference): `0xffCC662D1A5fE19ced0cc49e41e21245A64FA72E`
+- DisputeCourt v2 (evidence-first, reasoning on-chain): `0x2EA4313E7c945B7D74Cf0eE1785B94583232d95a`
+
+---
+
+## Review Notes
+
+Following the "More information requested" review feedback, The Jury was extended with **DisputeCourt v2**: all authoritative reasoning now runs inside a GenLayer Intelligent Contract, validators retrieve and hash the evidence themselves, and each dispute mode selects its corresponding adjudication principle in contract code. A detailed, point-by-point response to the review is here:
+
+- **Reviewer response:** [docs/implementation/reviewer-response.md](docs/implementation/reviewer-response.md)
+- Phase A (contract layer): [docs/implementation/phase-a.md](docs/implementation/phase-a.md)
+- Phase B (UI integration): [docs/implementation/phase-b.md](docs/implementation/phase-b.md)
 
 ---
 
@@ -110,8 +121,11 @@ The first submission overclaimed and was correctly rejected. This one is built s
 
 - Live: https://genlayer-jury.vercel.app
 - Repository: https://github.com/unifyWeb3/genlayer-jury
+- Review response: [docs/implementation/reviewer-response.md](docs/implementation/reviewer-response.md)
 - DisputeCourt contract: https://explorer-bradbury.genlayer.com/address/0x33f62147011B75cDF2333682C9dB2A1F6e7bF908
 - FlightDelayDispute contract: https://explorer-bradbury.genlayer.com/address/0xffCC662D1A5fE19ced0cc49e41e21245A64FA72E
+- DisputeCourt v2 contract: https://explorer-bradbury.genlayer.com/address/0x2EA4313E7c945B7D74Cf0eE1785B94583232d95a
+- Finalized v2 evidence dispute (Eiffel Tower, UPHELD): https://explorer-bradbury.genlayer.com/tx/0x14e133e11ab0f182a1b8f985f0171a3408af2c1df4eec807660370053c714d1a
 - Example finalized dispute (freelancer): [paste a recent freelancer or custom tx URL]
 - Case files: /case/freelancer · /case/flight · /case/dao · /case/prediction · /case/ai-agent
 - Field Guide: /#field-guide
