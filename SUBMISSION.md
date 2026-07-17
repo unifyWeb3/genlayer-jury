@@ -7,6 +7,7 @@
 **Builder:** @0xunify
 **Network:** Testnet Bradbury (Chain ID 4221) — persistent, production-like
 **Deployed contracts:**
+
 - DisputeCourt (generic adjudication): `0x33f62147011B75cDF2333682C9dB2A1F6e7bF908`
 - FlightDelayDispute (strict-mode reference): `0xffCC662D1A5fE19ced0cc49e41e21245A64FA72E`
 - DisputeCourt v2 (evidence-first, reasoning on-chain): `0x2EA4313E7c945B7D74Cf0eE1785B94583232d95a`
@@ -41,15 +42,15 @@ This resubmission closes that gap completely. Every dispute now executes a real 
 
 The architectural review's own scorecard, then and now:
 
-| Dimension | Before | Now |
-|---|---|---|
-| SDK integration | absent | `genlayer-js`, real `writeContract` / `readContract` |
-| Chain execution | none | every verdict is an on-chain transaction |
-| Deployed contracts | none | two live on Bradbury (persistent) |
-| Transaction hashes | none | one per dispute, explorer-linked in the UI |
-| Removal resistance | remove GenLayer → identical | remove GenLayer → the product has no verdicts |
+| Dimension          | Before                      | Now                                                  |
+| ------------------ | --------------------------- | ---------------------------------------------------- |
+| SDK integration    | absent                      | `genlayer-js`, real `writeContract` / `readContract` |
+| Chain execution    | none                        | every verdict is an on-chain transaction             |
+| Deployed contracts | none                        | two live on Bradbury (persistent)                    |
+| Transaction hashes | none                        | one per dispute, explorer-linked in the UI           |
+| Removal resistance | remove GenLayer → identical | remove GenLayer → the product has no verdicts        |
 
-The thing the review said would flip the entire argument — *deploy a contract, show a real transaction hash* — is now true for every single dispute on the site, including ones the user invents.
+The thing the review said would flip the entire argument — _deploy a contract, show a real transaction hash_ — is now true for every single dispute on the site, including ones the user invents.
 
 ---
 
@@ -126,9 +127,8 @@ The first submission overclaimed and was correctly rejected. This one is built s
 - FlightDelayDispute contract: https://explorer-bradbury.genlayer.com/address/0xffCC662D1A5fE19ced0cc49e41e21245A64FA72E
 - DisputeCourt v2 contract: https://explorer-bradbury.genlayer.com/address/0x2EA4313E7c945B7D74Cf0eE1785B94583232d95a
 - Finalized v2 evidence dispute (Eiffel Tower, UPHELD): https://explorer-bradbury.genlayer.com/tx/0x14e133e11ab0f182a1b8f985f0171a3408af2c1df4eec807660370053c714d1a
-- Example finalized dispute (freelancer): [paste a recent freelancer or custom tx URL]
+- Example finalized dispute (custom, via the live UI on v2): https://explorer-bradbury.genlayer.com/tx/0x8eac0b63f73c79a52d3a27fa2e20897a846832e3534f3eb566f7cdaed2fd1146
 - Case files: /case/freelancer · /case/flight · /case/dao · /case/prediction · /case/ai-agent
 - Field Guide: /#field-guide
 - Appeal & Finality: /#appeal
-- Demo video: [attach after recording]
-- X launch thread: [attach after posting from @0xunify]
+
